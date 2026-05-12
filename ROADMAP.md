@@ -83,11 +83,12 @@ PDF → [Extractor] → VAULT (MD/YAML)
 - Activar/desactivar con `vault.live_updates` en `config/config.yaml`
 - Obsidian detecta los cambios de archivo automáticamente (live reload nativo)
 
-### 🔲 Pendiente — Sprint 4
-- [ ] `agents/world_agent.py` — Avance autónomo del mundo entre sesiones (relojes, downtime NPC)
-- [ ] Soporte multi-PDF (manual base + suplementos)
-- [ ] Exportar log de sesión como Markdown/PDF
-- [ ] Editor de hoja de personaje manual en GUI
+### ✅ Completado — Sprint 4
+- `narrator/agents/world_agent.py` — avance autónomo entre sesiones: LLM decide qué frentes avanzan, actualiza checkboxes en archivos MD, simula acciones NPC, genera narrativa de downtime, escribe `vault/Sesiones/Downtime_SesionN.md`
+- Multi-PDF — botón "Añadir suplemento" acumula texto de PDFs adicionales en `manual_text`
+- Exportar log — botón "Exportar log" genera Markdown con transcripción completa + log de eventos, copia al vault
+- Editor de hoja de personaje — campo JSON editable en el tab "Personaje" con botón "Aplicar cambios"
+- GUI: botón "Avanzar Mundo" en tab Estado, botón "Exportar log" en tab Log
 
 ### 🔲 Pendiente — Fase 2 (Investigación)
 - [ ] `agents/player_agent.py` — IA jugadora que recibe escena y devuelve acción
@@ -121,6 +122,11 @@ PDF → [Extractor] → VAULT (MD/YAML)
 - Implementado: core/vault_writer.py — vault en tiempo real (Obsidian live reload)
 - Repo GitHub creado: https://github.com/martinezmarcos93/AI_NARRATOR.git
 - Pusheados dos commits (initial + vault_writer)
+
+### Sesión 2026-05-11 (parte 4)
+- Sprint 4 completo: world_agent.py, multi-PDF, exportar log, editor de hoja de personaje
+- WorldAgent: LLM decide avance de frentes, actualiza MD, genera narrativa downtime
+- GUI: botones "Avanzar Mundo", "Exportar log", "Añadir suplemento", editor JSON personaje
 
 ### Sesión 2026-05-11 (parte 3)
 - Reestructuración profesional del repo: narrator/ package, config/, data/, docs/

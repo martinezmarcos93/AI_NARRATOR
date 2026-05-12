@@ -22,6 +22,7 @@ try:
     from narrator.agents.orchestrator import Orchestrator
     from narrator.agents.extractor_agent import ExtractorAgent
     from narrator.agents.narrator_agent import NarratorAgent
+    from narrator.agents.world_agent import WorldAgent
     from narrator.core.llm_client import LLMClient
     from narrator.core.prompt_builder import PromptBuilder
     from narrator.core.vault_writer import VaultWriter
@@ -105,6 +106,7 @@ state = {
     "character": {},
     "manual_text": "",
     "manual_name": "",
+    "manual_names": [],       # lista de todos los PDFs cargados (multi-PDF)
     "system_name": "",
     "system_slug": "generic",
     "phase": "idle",
@@ -582,6 +584,152 @@ def refresh_estado_panel():
                      color=list(C_TEXT_DIM), wrap=155)
 
 # ─────────────────────────────────────────────
+#  MULTI-PDF — carga suplementos adicionales
+# ─────────────────────────────────────────────
+def add_supplement_callback(sender, app_data):
+    """Carga un PDF adicional y acumula su texto en manual_text."""
+    if not app_data or "file_path_name" not in app_data:
+        return
+    path = app_data["file_path_name"]
+    name = Path(path).name
+
+    def process():
+        text = extract_pdf_text(path, max_chars=8000)
+        separator = f"\n\n{'='*60}\n=== SUPLEMENTO: {name} ===\n{'='*60}\n\n"
+        state["manual_text"] += separator + text
+        state["manual_names"].append(name)
+        names_str = ", ".join(state["manual_names"])
+        dpg.set_value("manual_status", f"✓ {names_str}")
+        append_to_chat("system", f"Suplemento añadido: {name}")
+
+    threading.Thread(target=process, daemon=True).start()
+
+
+# ─────────────────────────────────────────────
+#  EXPORTAR LOG DE SESIÓN
+# ─────────────────────────────────────────────
+def export_session_log():
+    """Exporta el historial de chat completo como Markdown."""
+    session_n = state.get("session_number", 1)
+    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = f"Sesion_{session_n:02d}_export_{date_str}.md"
+    export_path = SAVE_DIR / filename
+
+    lines = [
+        f"# Sesión {session_n} — {datetime.now().strftime('%Y-%m-%d')}",
+        f"**Sistema:** {state.get('system_name', '—')}",
+        f"**Manual:** {state.get('manual_name', '—')}",
+        "",
+        "---",
+        "",
+        "## Transcripción",
+        "",
+    ]
+
+    for msg in state["messages"]:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "user":
+            lines.append(f"**Jugador:** {content}")
+        elif role == "assistant":
+            lines.append(f"**Narrador:** {content}")
+        lines.append("")
+
+    if state["session_log"]:
+        lines += ["---", "", "## Log de Eventos", ""]
+        lines += [f"- {e}" for e in state["session_log"]]
+
+    export_path.write_text("\n".join(lines), encoding="utf-8")
+
+    # También copiar al vault si existe
+    if _AGENT_MODE and _orchestrator:
+        config = _orchestrator.config
+        vault_path = Path(config.get("vault", {}).get("path", "vault"))
+        sessions_dir = vault_path / "Sesiones"
+        if sessions_dir.exists():
+            import shutil
+            shutil.copy(export_path, sessions_dir / filename)
+
+    append_to_chat("system", f"Log exportado: {export_path}")
+
+
+# ─────────────────────────────────────────────
+#  EDITOR DE HOJA DE PERSONAJE
+# ─────────────────────────────────────────────
+def refresh_character_editor():
+    """Actualiza el editor JSON con los datos actuales del personaje."""
+    try:
+        json_str = json.dumps(state["character"], ensure_ascii=False, indent=2)
+        dpg.set_value("char_json_editor", json_str)
+    except Exception:
+        pass
+
+def apply_character_edits():
+    """Lee el JSON del editor, valida y aplica al estado."""
+    try:
+        raw = dpg.get_value("char_json_editor")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            state["character"] = data
+            refresh_character_panel()
+            refresh_character_editor()
+            append_to_chat("system", "Hoja de personaje actualizada.")
+        else:
+            append_to_chat("system", "⚠ El JSON debe ser un objeto {}.")
+    except json.JSONDecodeError as e:
+        append_to_chat("system", f"⚠ JSON inválido: {e}")
+
+
+# ─────────────────────────────────────────────
+#  WORLD AGENT — avance autónomo del mundo
+# ─────────────────────────────────────────────
+def run_world_agent():
+    """Lanza el WorldAgent en un hilo secundario."""
+    if not _AGENT_MODE or not _orchestrator:
+        append_to_chat("system", "⚠ Modo agentes no disponible.")
+        return
+
+    try:
+        dpg.disable_item("world_advance_btn")
+    except Exception:
+        pass
+
+    def on_progress(msg: str):
+        append_to_chat("system", msg)
+
+    def run():
+        try:
+            llm = LLMClient(model=state["model"])
+            agent = WorldAgent(
+                llm=llm,
+                retriever=_orchestrator.retriever,
+                state=_orchestrator.state,
+            )
+            result = agent.run(
+                system_slug=state.get("system_slug", "generic"),
+                session_number=state.get("session_number", 1),
+                on_progress=on_progress,
+            )
+            summary = (
+                f"Mundo avanzado:\n"
+                f"  Frentes avanzados: {result['frentes_avanzados']}\n"
+                f"  NPCs simulados: {result['npcs_simulados']}\n\n"
+                f"{result['narrativa']}"
+            )
+            append_to_chat("system", summary)
+            refresh_estado_panel()
+        except Exception as e:
+            append_to_chat("system", f"Error en World Agent: {e}")
+        finally:
+            try:
+                dpg.enable_item("world_advance_btn")
+            except Exception:
+                pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+# ─────────────────────────────────────────────
 #  GUI — PDF LOADER
 # ─────────────────────────────────────────────
 def load_pdf_callback(sender, app_data):
@@ -598,6 +746,7 @@ def load_pdf_callback(sender, app_data):
         system_name, system_slug = detect_system(text)
         state["manual_text"] = text
         state["manual_name"] = name
+        state["manual_names"] = [name]
         state["system_name"] = system_name
         state["system_slug"] = system_slug
 
@@ -605,6 +754,7 @@ def load_pdf_callback(sender, app_data):
         dpg.set_value("system_detected", system_name)
         try:
             dpg.enable_item("build_vault_btn")
+            dpg.enable_item("add_pdf_btn")
         except Exception:
             pass
 
@@ -795,6 +945,19 @@ def build_gui():
     dpg.add_file_extension(".pdf", parent="pdf_dialog", color=list(C_GOLD))
     dpg.add_file_extension(".PDF", parent="pdf_dialog", color=list(C_GOLD))
 
+    dpg.add_file_dialog(
+        tag="pdf_supplement_dialog",
+        directory_selector=False,
+        show=False,
+        callback=add_supplement_callback,
+        width=700,
+        height=450,
+        modal=True,
+        default_filename="",
+    )
+    dpg.add_file_extension(".pdf", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
+    dpg.add_file_extension(".PDF", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
+
     with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
                     no_resize=True, no_scrollbar=True):
 
@@ -822,6 +985,12 @@ def build_gui():
             dpg.add_button(
                 label="  Cargar PDF  ",
                 callback=lambda: dpg.show_item("pdf_dialog"),
+            )
+            dpg.add_button(
+                tag="add_pdf_btn",
+                label="+ Suplemento",
+                callback=lambda: dpg.show_item("pdf_supplement_dialog"),
+                enabled=False,
             )
 
             dpg.add_spacer(width=15)
@@ -859,7 +1028,7 @@ def build_gui():
                     with dpg.tab(label="Personaje"):
                         add_spacer(6)
                         with dpg.child_window(tag="char_content",
-                                              height=WIN_H - 220,
+                                              height=WIN_H - 370,
                                               border=False):
                             dim_text("Sin personaje creado.")
                             add_spacer(4)
@@ -870,6 +1039,23 @@ def build_gui():
                             label="Actualizar hoja",
                             width=-1,
                             callback=refresh_character_panel
+                        )
+                        add_spacer(6)
+                        dpg.add_separator()
+                        add_spacer(4)
+                        dim_text("Editar (JSON):")
+                        dpg.add_input_text(
+                            tag="char_json_editor",
+                            multiline=True,
+                            width=-1,
+                            height=110,
+                            hint='{"nombre": "...", ...}',
+                        )
+                        add_spacer(4)
+                        dpg.add_button(
+                            label="Aplicar cambios",
+                            width=-1,
+                            callback=apply_character_edits,
                         )
 
                     with dpg.tab(label="Dados"):
@@ -965,6 +1151,12 @@ def build_gui():
 
                         add_spacer(6)
                         dpg.add_button(
+                            label="Exportar log",
+                            width=-1,
+                            callback=export_session_log,
+                        )
+                        add_spacer(4)
+                        dpg.add_button(
                             label="Limpiar log",
                             width=-1,
                             callback=lambda: (
@@ -1004,7 +1196,14 @@ def build_gui():
                         dpg.add_button(
                             label="Actualizar",
                             width=-1,
-                            callback=refresh_estado_panel
+                            callback=refresh_estado_panel,
+                        )
+                        add_spacer(4)
+                        dpg.add_button(
+                            tag="world_advance_btn",
+                            label="Avanzar Mundo",
+                            width=-1,
+                            callback=run_world_agent,
                         )
 
     dpg.setup_dearpygui()
