@@ -185,8 +185,10 @@ Ver [`ROADMAP.md`](ROADMAP.md) para el estado detallado de desarrollo.
 - [x] Vault writer (Obsidian live updates)
 - [x] Búsqueda semántica en vault (nomic-embed-text via Ollama)
 - [x] Tab Estado con relojes de frentes (Sprint 3)
-- [ ] Soporte multi-PDF
-- [ ] Panel de campaña exportable
+- [x] Soporte multi-PDF (botón "Añadir suplemento" acumula PDFs adicionales)
+- [x] World agent — avance autónomo del mundo entre sesiones (relojes, downtime NPC)
+- [x] Exportar log de sesión a Markdown
+- [x] Editor de hoja de personaje en GUI (JSON editable)
 
 ### Fase 2 — IA vs IA (investigación)
 - [ ] Agente jugador IA que recibe escena y devuelve acción
