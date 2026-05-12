@@ -75,12 +75,14 @@ PDF → [Extractor] → VAULT (MD/YAML)
 - [ ] Panel de estado de campaña en GUI (relojes de frentes visibles)
 - [ ] Exportar log de sesión como Markdown/PDF
 
-### 🔲 Obsidian — Ideas en evaluación
-- El vault/ YA es compatible con Obsidian (MD + frontmatter YAML + wikilinks)
-- Posibilidades: narrator escribe al vault → Obsidian lo ve en tiempo real
-- Dataview plugin para dashboards dinámicos de NPCs/Frentes
-- Graph view para ver red de conexiones entre entidades
-- Decidir: ¿usar Obsidian como editor del vault en paralelo? ¿Liveync entre sesiones?
+### ✅ Obsidian — Live updates implementados
+- `core/vault_writer.py` — escribe al vault durante la sesión
+  - Log de sesión en `vault/Sesiones/Sesion_N.md` por cada intercambio
+  - Notas de NPCs actualizadas automáticamente cuando aparecen en respuestas
+  - Notas de locaciones cuando se mencionan en la narrativa
+  - Tiradas de dados registradas con timestamp
+- Activar/desactivar con `vault.live_updates` en `config.yaml`
+- Obsidian detecta los cambios de archivo automáticamente (live reload nativo)
 
 ### 🔲 Pendiente — Sprint 3
 - [ ] `agents/world_agent.py` — Avance autónomo del mundo entre sesiones (relojes, downtime NPC)
@@ -116,11 +118,8 @@ PDF → [Extractor] → VAULT (MD/YAML)
 ### Sesión 2026-05-11 (parte 2)
 - README unificado (eliminado README (2).md duplicado)
 - Implementado: agents/extractor_agent.py — pipeline completo PDF → vault
-  - Extrae NPCs, Locaciones, Facciones del texto PDF
-  - Genera Frentes desde las entidades extraídas
-  - Escribe archivos MD con frontmatter Obsidian-compatible
-  - Genera 00_Dashboard.md como punto de entrada
-- Integrado botón "Construir Vault" en GUI (se habilita al cargar PDF)
-- Actualizado .gitignore (.claude/, *.docx, mejor cobertura)
-- Obsidian: identificado que vault/ ya es 100% compatible, pendiente decisión de integración
+- Integrado botón "Construir Vault" en GUI
+- Implementado: core/vault_writer.py — vault en tiempo real (Obsidian live reload)
+- Repo GitHub creado: https://github.com/martinezmarcos93/AI_NARRATOR.git
+- Pusheados dos commits (initial + vault_writer)
 - Pendiente para próxima sesión: Sprint 3 (búsqueda semántica, panel relojes en GUI)
