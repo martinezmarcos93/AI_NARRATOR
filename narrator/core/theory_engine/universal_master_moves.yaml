@@ -1,0 +1,33 @@
+# Movimientos Universales del Director (Narrador/Master/Keeper/MC)
+# El director elige uno de estos para avanzar la historia cuando hay una pausa o tras una tirada.
+
+universal_master_moves:
+  - name: "Mostrar el costo de una acción"
+    category: "Reacción a tirada"
+    trigger: "Jugador obtiene un Éxito Parcial (7-9 en PbtA) o un Fracaso (6-)"
+    instruction: "El jugador logra su objetivo, pero sucede algo más. Ejemplo: 'Abres la cerradura, pero el ruido alerta al guardia.' o 'Logras engañar al noble, pero él sospecha de ti y ahora te seguirá.'"
+  
+  - name: "Ventana al pasado"
+    category: "Mundo Activo"
+    trigger: "Los jugadores investigan un lugar o un objeto"
+    instruction: "Describe una pista o un eco del pasado que revele información sobre la trama. No digas la verdad completa, solo lo suficiente para que quieran más."
+  
+  - name: "El tiempo avanza"
+    category: "Mundo Activo"
+    trigger: "Los jugadores pasan demasiado tiempo haciendo algo sin importancia"
+    instruction: "Avanza un reloj o un frente. Muestra cómo el mundo ha cambiado mientras ellos no estaban. Ejemplo: 'Mientras viajáis, el humo negro ha crecido en el horizonte. La ciudad está siendo atacada.'"
+  
+  - name: "El aliado en problemas"
+    category: "Hacer que los personajes importen"
+    trigger: "Los jugadores actúan sin considerar las consecuencias para otros"
+    instruction: "Un PNJ importante para un personaje (su mentor, su familia, su rebaño) se encuentra en peligro o ha sufrido las consecuencias de las acciones de los jugadores. Esto genera un conflicto personal."
+  
+  - name: "Ofrecer un dilema moral"
+    category: "Conflicto Emocional"
+    trigger: "Los jugadores se enfrentan a una elección difícil"
+    instruction: "Presenta una elección donde no hay respuesta correcta. Ejemplo: 'Puedes salvar a un niño de un culto, pero si lo haces, el culto sacrificará a tres personas en otro lugar. ¿Qué haces?'"
+  
+  - name: "Humanizar el peligro"
+    category: "Tensión & Horror"
+    trigger: "Introducir un nuevo enemigo o amenaza"
+    instruction: "En lugar de mostrar al monstruo, muestra lo que le ha hecho a un PNJ. Ejemplo (CoC): 'Encuentras a un guardia aterrorizado, tiritando en una esquina, señalando al pasillo sin poder hablar.'"

@@ -1,0 +1,17 @@
+# Herramientas para un Mundo Activo
+# Permite que el mundo se mueva solo.
+
+world_tools:
+  - type: "Reloj de Frente"
+    description: "Una cuenta regresiva que avanza en tiempo real. Representa una amenaza o evento que ocurre si los jugadores no intervienen."
+    stages:
+      - 1: "Se oyen rumores de actividad extraña en el distrito."
+      - 2: "Un aliado desaparece o un barrio es atacado."
+      - 3: "El plan se activa y la amenaza se materializa."
+    usage: "El Director debe avanzar el Reloj al menos 1 paso por sesión, o cada vez que los jugadores ignoran la amenaza."
+
+  - type: "Tabla de consecuencias social"
+    description: "Muestra cómo las acciones de los jugadores afectan su reputación en las facciones."
+    mechanics: 
+      - "Hacer un favor a una facción -> +1 Reputación. Consecuencia: Un miembro de la facción te ofrece un trato."
+      - "Traicionar a una facción -> -2 Reputación. Consecuencia: La facción te pone precio a la cabeza."

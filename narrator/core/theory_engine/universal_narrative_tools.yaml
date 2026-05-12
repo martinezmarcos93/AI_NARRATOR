@@ -1,0 +1,22 @@
+# Herramientas Narrativas Universales
+# Estas son reglas de diseño que el sistema debe respetar siempre.
+
+narrative_tools:
+  - name: "Regla de los 3 indicios"
+    description: "Nunca pongas una sola pista entre los jugadores y la verdad. Si la única pista es un libro en la biblioteca y no lo buscan, la historia muere. Siempre debe haber al menos 3 caminos diferentes que lleven a la misma información."
+    example: "Para saber que el culto se reúne en los muelles, puedes encontrar: 1) Un mapa con una ruta marcada en la biblioteca, 2) Un testigo que vio a extraños con túnicas yendo al muelle, 3) Un recibo de un barco en la basura que atraca en el muelle."
+    systems_applies_to: ["Call of Cthulhu", "Mago", "Investigación en general"]
+
+  - name: "Fallo hacia adelante"
+    description: "Un fracaso en una tirada (6-) nunca debe detener la historia. Debe complicarla. El jugador falla en su intento, pero la historia avanza hacia un nuevo problema o una nueva dirección."
+    examples:
+      - "Intentas forzar la cerradura, pero fallas. La manija se rompe y el ruido alerta a los guardias."
+      - "Interrogas al prisionero, pero no consigues la información que quieres. Él se ríe y te da una pista falsa que te llevará a una trampa."
+    systems_applies_to: ["PbtA", "WoD", "Pathfinder"]
+
+  - name: "Consecuencias para la tirada (Sistema 2d6 genérico)"
+    description: "Cuando un jugador tira dados para una acción difícil, el resultado define el coste, no si ocurre."
+    results:
+      - "10+: Éxito total y sin coste."
+      - "7-9: Éxito, pero con un coste o una complicación (Ej: 'Lo consigues, pero llamas la atención')."
+      - "6-: Fracaso o éxito con un coste enorme. La situación empeora significativamente, pero el jugador sigue en movimiento."
