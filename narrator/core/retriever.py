@@ -1,6 +1,7 @@
 """
 Vault Retriever — busca archivos en el vault y extrae contexto relevante.
 El vault son archivos Markdown con frontmatter YAML.
+Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible).
 """
 
 from pathlib import Path
@@ -12,6 +13,8 @@ try:
 except ImportError:
     _HAS_FRONTMATTER = False
 
+from narrator.core.embedder import Embedder
+
 
 def _parse_file(path: Path) -> tuple[dict, str]:
     """Returns (metadata_dict, body_text). Graceful fallback si falta python-frontmatter."""
@@ -22,18 +25,24 @@ def _parse_file(path: Path) -> tuple[dict, str]:
             return dict(post.metadata), post.content
         except Exception:
             pass
-    # Fallback: sin frontmatter
     return {}, text
 
 
 class VaultRetriever:
     def __init__(self, vault_path: str = "./vault"):
         self.vault_path = Path(vault_path)
+        self._embedder = Embedder()
+        self._index: Optional[dict[str, list[float]]] = None
 
     def _all_md_files(self) -> list[Path]:
         if not self.vault_path.exists():
             return []
         return list(self.vault_path.rglob("*.md"))
+
+    def _get_index(self) -> dict[str, list[float]]:
+        if self._index is None:
+            self._index = self._embedder.load_index(self.vault_path)
+        return self._index
 
     # ── Por tipo ──────────────────────────────────────────────
     def get_by_type(self, tipo: str, max_files: int = 10) -> list[dict]:
@@ -47,9 +56,48 @@ class VaultRetriever:
                 break
         return results
 
+    # ── Búsqueda semántica ────────────────────────────────────
+    def search_semantic(self, query: str, max_results: int = 5) -> list[dict]:
+        """
+        Búsqueda semántica via embeddings. Carga el índice de vault/.embeddings.json.
+        Devuelve [] si el modelo de embeddings no está disponible.
+        """
+        if not self._embedder.is_available():
+            return []
+
+        query_vec = self._embedder.embed(query)
+        if not query_vec:
+            return []
+
+        index = self._get_index()
+        if not index:
+            return []
+
+        scored = []
+        for path_str, vec in index.items():
+            score = Embedder.cosine_similarity(query_vec, vec)
+            if score > 0.0:
+                scored.append((score, path_str))
+
+        scored.sort(reverse=True)
+        results = []
+        for _, path_str in scored[:max_results]:
+            p = Path(path_str)
+            if p.exists():
+                meta, body = _parse_file(p)
+                results.append({"meta": meta, "body": body, "path": path_str})
+
+        return results
+
     # ── Búsqueda por keyword ──────────────────────────────────
     def search(self, query: str, max_results: int = 5) -> list[dict]:
-        """Búsqueda por coincidencia de keywords. Devuelve por relevancia."""
+        """
+        Búsqueda combinada: semántica si está disponible, keyword como fallback.
+        """
+        semantic = self.search_semantic(query, max_results=max_results)
+        if semantic:
+            return semantic
+
         query_lower = query.lower()
         scored = []
         for path in self._all_md_files():
@@ -69,7 +117,6 @@ class VaultRetriever:
         """
         results = self.search(query, max_results=3)
         if not results:
-            # Fallback: resumen de NPCs y frentes activos
             results = (
                 self.get_by_type("npc", max_files=2)
                 + self.get_by_type("frente", max_files=2)
@@ -90,6 +137,31 @@ class VaultRetriever:
             total_words += words
 
         return "\n---\n".join(parts) if parts else ""
+
+    # ── Indexación incremental ────────────────────────────────
+    def index_new_files(self, on_progress=None) -> int:
+        """
+        Indexa semánticamente los archivos del vault que no están en el índice.
+        Devuelve el número de archivos nuevos indexados.
+        """
+        if not self._embedder.is_available():
+            return 0
+
+        index = self._get_index()
+        updated = 0
+
+        for md_file in self._all_md_files():
+            if str(md_file) in index:
+                continue
+            content = md_file.read_text(encoding="utf-8", errors="ignore")
+            if self._embedder.index_file(md_file, content, index):
+                updated += 1
+                on_progress and on_progress(f"  Indexado: {md_file.name}")
+
+        if updated:
+            self._embedder.save_index(index, self.vault_path)
+
+        return updated
 
     # ── Resúmenes de estado ───────────────────────────────────
     def get_active_npcs_summary(self, max_npcs: int = 6) -> str:
@@ -121,6 +193,28 @@ class VaultRetriever:
             escasez = m.get("escasez", "")
             lines.append(f"- {name} [{estado}]{': ' + escasez if escasez else ''}")
         return "\n".join(lines)
+
+    def get_fronts_with_clocks(self) -> list[dict]:
+        """
+        Devuelve frentes con información de reloj para el panel de estado.
+        Cada item: {"nombre": str, "estado": str, "escasez": str, "tick": int, "max": int}
+        """
+        fronts = self.get_by_type("frente")
+        result = []
+        for f in fronts:
+            m = f["meta"]
+            import re
+            body = f["body"]
+            checked = len(re.findall(r"\[x\]", body, re.IGNORECASE))
+            total = len(re.findall(r"\[.\]", body))
+            result.append({
+                "nombre": m.get("nombre", "?"),
+                "estado": m.get("estado", "latente"),
+                "escasez": m.get("escasez", ""),
+                "tick": checked,
+                "max": total if total > 0 else 6,
+            })
+        return result
 
     def vault_is_empty(self) -> bool:
         return len(self._all_md_files()) == 0

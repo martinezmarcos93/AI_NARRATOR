@@ -24,7 +24,7 @@ DICE_RESOLUTION_RULES = """RESOLUCIÓN DE TIRADAS:
 
 
 class PromptBuilder:
-    def __init__(self, systems_path: str = "./systems"):
+    def __init__(self, systems_path: str = "data/systems"):
         self.systems_path = Path(systems_path)
         self._cache: dict[str, dict] = {}
 

@@ -69,25 +69,24 @@ PDF → [Extractor] → VAULT (MD/YAML)
 - `agents/npc_routines.py` — Simulación de comportamiento de NPCs con action pools
 - `.gitignore` — Actualizado (vault/, estado_campana.yaml, .claude/, *.docx)
 
-### 🔲 Pendiente — Sprint 3
-- [ ] Búsqueda semántica en retriever (ChromaDB o nomic-embed-text via Ollama)
-- [ ] Soporte multi-PDF (manual base + suplementos)
-- [ ] Panel de estado de campaña en GUI (relojes de frentes visibles)
-- [ ] Exportar log de sesión como Markdown/PDF
+### ✅ Completado — Sprint 3
+- `narrator/core/embedder.py` — embeddings via nomic-embed-text (Ollama), índice en `vault/.embeddings.json`
+- `narrator/core/retriever.py` — búsqueda semántica + keyword fallback, `index_new_files()`, `get_fronts_with_clocks()`
+- `narrator/agents/extractor_agent.py` — indexación semántica automática después de construir vault
+- `narrator/app.py` — Tab "Estado" en columna derecha: relojes de frentes con barras ASCII
 
 ### ✅ Obsidian — Live updates implementados
-- `core/vault_writer.py` — escribe al vault durante la sesión
+- `narrator/core/vault_writer.py` — escribe al vault durante la sesión
   - Log de sesión en `vault/Sesiones/Sesion_N.md` por cada intercambio
   - Notas de NPCs actualizadas automáticamente cuando aparecen en respuestas
-  - Notas de locaciones cuando se mencionan en la narrativa
   - Tiradas de dados registradas con timestamp
-- Activar/desactivar con `vault.live_updates` en `config.yaml`
+- Activar/desactivar con `vault.live_updates` en `config/config.yaml`
 - Obsidian detecta los cambios de archivo automáticamente (live reload nativo)
 
-### 🔲 Pendiente — Sprint 3
+### 🔲 Pendiente — Sprint 4
 - [ ] `agents/world_agent.py` — Avance autónomo del mundo entre sesiones (relojes, downtime NPC)
-- [ ] Panel de estado de campaña en la GUI (relojes, frentes activos)
-- [ ] Exportar log de sesión
+- [ ] Soporte multi-PDF (manual base + suplementos)
+- [ ] Exportar log de sesión como Markdown/PDF
 - [ ] Editor de hoja de personaje manual en GUI
 
 ### 🔲 Pendiente — Fase 2 (Investigación)
@@ -122,4 +121,10 @@ PDF → [Extractor] → VAULT (MD/YAML)
 - Implementado: core/vault_writer.py — vault en tiempo real (Obsidian live reload)
 - Repo GitHub creado: https://github.com/martinezmarcos93/AI_NARRATOR.git
 - Pusheados dos commits (initial + vault_writer)
-- Pendiente para próxima sesión: Sprint 3 (búsqueda semántica, panel relojes en GUI)
+
+### Sesión 2026-05-11 (parte 3)
+- Reestructuración profesional del repo: narrator/ package, config/, data/, docs/
+- Archivos movidos: systems/ → data/systems/, vault_template/ → data/vault_template/, Prompt_Generador_Cronica.md → docs/prompts/
+- Eliminados: narrator.py, core/, agents/, requirements.txt, config.yaml (raíz)
+- Creados: main.py, pyproject.toml, narrator/app.py, config/config.yaml
+- Sprint 3 completo: Embedder (nomic-embed-text), búsqueda semántica en VaultRetriever, indexación automática en ExtractorAgent, Tab "Estado" con relojes en GUI

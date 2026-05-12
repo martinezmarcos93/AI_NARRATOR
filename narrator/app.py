@@ -1,12 +1,11 @@
 """
 AI NARRATOR — Motor de Rol con Ollama
 ======================================
-GUI: Dear PyGui  |  Backend: core/ + agents/
-Requiere: pip install dearpygui requests PyMuPDF pyyaml python-frontmatter jinja2
-Requiere: Ollama corriendo en localhost:11434
+GUI: Dear PyGui  |  Backend: narrator/core/ + narrator/agents/
 """
 
 import dearpygui.dearpygui as dpg
+import fitz  # PyMuPDF
 import requests
 import threading
 import json
@@ -15,18 +14,22 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+from narrator import PROJECT_ROOT
+
 # ── Backend de agentes ────────────────────────────────────
 # Carga con fallback: si el package no está listo, usa modo legacy.
 try:
-    from agents.orchestrator import Orchestrator
-    from agents.extractor_agent import ExtractorAgent
-    from agents.narrator_agent import NarratorAgent
-    from core.llm_client import LLMClient
-    from core.prompt_builder import PromptBuilder
-    from core.vault_writer import VaultWriter
-    _orchestrator = Orchestrator()
+    from narrator.agents.orchestrator import Orchestrator
+    from narrator.agents.extractor_agent import ExtractorAgent
+    from narrator.agents.narrator_agent import NarratorAgent
+    from narrator.core.llm_client import LLMClient
+    from narrator.core.prompt_builder import PromptBuilder
+    from narrator.core.vault_writer import VaultWriter
+
+    _CONFIG_PATH = str(PROJECT_ROOT / "config" / "config.yaml")
+    _orchestrator = Orchestrator(config_path=_CONFIG_PATH)
     _narrator_agent = NarratorAgent()
-    _vault_writer: "VaultWriter | None" = None  # se inicializa al arrancar sesión
+    _vault_writer: "VaultWriter | None" = None
     _AGENT_MODE = True
 except Exception as _agent_err:
     _orchestrator = None
@@ -43,24 +46,23 @@ APP_TITLE  = "AI NARRATOR"
 WIN_W, WIN_H = 1400, 900
 
 # Paleta: tinta oscura + pergamino + rojo sangre + oro
-C_BG          = (12, 10, 8, 255)       # negro tinta
-C_PANEL       = (22, 18, 14, 255)      # marrón muy oscuro
-C_SURFACE     = (32, 26, 20, 255)      # superficie panel
-C_BORDER      = (80, 55, 30, 255)      # borde dorado oscuro
-C_GOLD        = (180, 140, 60, 255)    # dorado principal
-C_GOLD_DIM    = (120, 90, 35, 255)     # dorado apagado
-C_RED         = (160, 35, 35, 255)     # rojo sangre
-C_RED_BRIGHT  = (200, 50, 40, 255)     # rojo brillante
-C_TEXT        = (220, 205, 180, 255)   # pergamino claro
-C_TEXT_DIM    = (140, 120, 90, 255)    # texto atenuado
-C_TEXT_DARK   = (80, 65, 45, 255)      # texto oscuro
-C_INPUT_BG    = (18, 14, 10, 255)      # fondo input
-C_HOVER       = (45, 35, 22, 255)      # hover
-C_ACTIVE      = (60, 45, 25, 255)      # activo
-C_SUCCESS     = (60, 130, 70, 255)     # verde éxito
-C_DICE_BG     = (28, 22, 15, 255)      # fondo dados
+C_BG          = (12, 10, 8, 255)
+C_PANEL       = (22, 18, 14, 255)
+C_SURFACE     = (32, 26, 20, 255)
+C_BORDER      = (80, 55, 30, 255)
+C_GOLD        = (180, 140, 60, 255)
+C_GOLD_DIM    = (120, 90, 35, 255)
+C_RED         = (160, 35, 35, 255)
+C_RED_BRIGHT  = (200, 50, 40, 255)
+C_TEXT        = (220, 205, 180, 255)
+C_TEXT_DIM    = (140, 120, 90, 255)
+C_TEXT_DARK   = (80, 65, 45, 255)
+C_INPUT_BG    = (18, 14, 10, 255)
+C_HOVER       = (45, 35, 22, 255)
+C_ACTIVE      = (60, 45, 25, 255)
+C_SUCCESS     = (60, 130, 70, 255)
+C_DICE_BG     = (28, 22, 15, 255)
 
-# Prompt de respaldo para modo legacy (sin agentes)
 _SYSTEM_PROMPT_LEGACY = """
 Eres un Narrador de juegos de rol de élite. Experto en Mundo de Tinieblas, D&D, Pathfinder, Call of Cthulhu y sistemas PbtA.
 
@@ -99,17 +101,17 @@ TONO: Adaptá el vocabulario al sistema. Respondé en español rioplatense.
 state = {
     "model": "llama3.2",
     "models": [],
-    "messages": [],          # historial de chat [{role, content}]
-    "character": {},         # hoja de personaje
-    "manual_text": "",       # texto extraído del PDF
+    "messages": [],
+    "character": {},
+    "manual_text": "",
     "manual_name": "",
-    "system_name": "",       # sistema detectado (nombre display)
-    "system_slug": "generic",# sistema detectado (slug para config)
-    "phase": "idle",         # idle | char_creation | playing
-    "pending_roll": None,    # dados pedidos por el narrador
-    "session_log": [],       # log de eventos clave
+    "system_name": "",
+    "system_slug": "generic",
+    "phase": "idle",
+    "pending_roll": None,
+    "session_log": [],
     "last_dice_result": None,
-    "session_number": 1,     # número de sesión actual
+    "session_number": 1,
 }
 
 # ─────────────────────────────────────────────
@@ -125,7 +127,6 @@ def get_models():
     return []
 
 def stream_chat(messages, callback, done_callback):
-    """Stream chat completion from Ollama"""
     payload = {
         "model": state["model"],
         "messages": messages,
@@ -160,7 +161,6 @@ def stream_chat(messages, callback, done_callback):
 #  PDF PROCESSING
 # ─────────────────────────────────────────────
 def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
-    """Extrae texto del PDF limitando tamaño para el contexto"""
     try:
         doc = fitz.open(path)
         text = ""
@@ -174,11 +174,7 @@ def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
         return f"Error leyendo PDF: {e}"
 
 def detect_system(text: str) -> tuple[str, str]:
-    """
-    Detecta el sistema de juego del texto del manual.
-    Devuelve (display_name, slug).
-    """
-    # Si tenemos el orquestador, delegar la detección al PromptBuilder
+    """Detecta el sistema de juego. Devuelve (display_name, slug)."""
     if _AGENT_MODE and _orchestrator:
         slug = _orchestrator.detect_and_set_system(text, state)
         names = {
@@ -190,7 +186,6 @@ def detect_system(text: str) -> tuple[str, str]:
         }
         return names.get(slug, "Sistema Desconocido"), slug
 
-    # Fallback manual
     t = text.lower()
     if any(w in t for w in ["vampiro", "mascarada", "brujah", "toreador", "camarilla", "malkavian"]):
         return "Mundo de Tinieblas (Vampiro V20)", "vtm_v20"
@@ -202,13 +197,10 @@ def detect_system(text: str) -> tuple[str, str]:
         return "Dungeons & Dragons 5e", "dnd_5e"
     if any(w in t for w in ["call of cthulhu", "investigador", "cordura", "mythos"]):
         return "La Llamada de Cthulhu 7e", "coc_7e"
-    if any(w in t for w in ["pbta", "powered by", "maestro de ceremonias"]):
-        return "PbtA (Genérico)", "generic"
     return "Sistema Desconocido", "generic"
 
 
 def _build_legacy_context() -> str:
-    """Contexto de respaldo cuando el orquestador no está disponible."""
     content = _SYSTEM_PROMPT_LEGACY
     if state["manual_text"]:
         content += f"\n\n=== MANUAL: {state['manual_name']} ===\n{state['manual_text'][:6000]}"
@@ -241,7 +233,7 @@ SAVE_DIR.mkdir(exist_ok=True)
 def save_session():
     data = {
         "character": state["character"],
-        "messages": state["messages"][-40:],  # últimos 40 mensajes
+        "messages": state["messages"][-40:],
         "system_name": state["system_name"],
         "system_slug": state["system_slug"],
         "manual_name": state["manual_name"],
@@ -296,7 +288,6 @@ _streaming_token = ""
 _is_streaming = False
 
 def append_to_chat(role: str, text: str):
-    """Agrega mensaje al historial visual"""
     if role == "user":
         color = list(C_GOLD)
         prefix = "▶  Vos"
@@ -313,14 +304,11 @@ def append_to_chat(role: str, text: str):
         dpg.add_separator()
         add_spacer(4)
 
-    # Auto-scroll
     dpg.set_y_scroll("chat_scroll", dpg.get_y_scroll_max("chat_scroll"))
 
 def update_streaming_label(chunk: str):
-    """Actualiza label de streaming en tiempo real"""
     global _streaming_token
     _streaming_token += chunk
-    # Truncar para display (Dear PyGui no wrappea bien en update)
     display = _streaming_token[-600:] if len(_streaming_token) > 600 else _streaming_token
     try:
         dpg.set_value("streaming_label", display)
@@ -328,7 +316,6 @@ def update_streaming_label(chunk: str):
         pass
 
 def finish_streaming(full_text: str):
-    """Termina el streaming, agrega al chat real y actualiza el vault."""
     global _is_streaming, _streaming_token
     _is_streaming = False
     _streaming_token = ""
@@ -342,7 +329,6 @@ def finish_streaming(full_text: str):
     state["messages"].append({"role": "assistant", "content": full_text})
     append_to_chat("assistant", full_text)
 
-    # Detectar evento importante para el log
     is_important = False
     if _narrator_agent:
         is_important = _narrator_agent.is_important_event(full_text)
@@ -351,7 +337,6 @@ def finish_streaming(full_text: str):
             state["character"].update(char_data)
             refresh_character_panel()
     else:
-        import re as _re
         is_important = any(
             w in full_text.lower()
             for w in ["tirada", "dado", "d20", "éxito", "fallo", "consecuencia"]
@@ -362,7 +347,6 @@ def finish_streaming(full_text: str):
         state["session_log"].append(entry)
         refresh_log()
 
-    # Actualizar vault en tiempo real (hilo separado para no bloquear la GUI)
     if _vault_writer and _AGENT_MODE:
         last_user = ""
         for m in reversed(state["messages"][:-1]):
@@ -371,8 +355,7 @@ def finish_streaming(full_text: str):
                 break
         session_n = state.get("session_number", 1)
 
-        import threading as _t
-        _t.Thread(
+        threading.Thread(
             target=_vault_writer.on_narrator_response,
             args=(last_user, full_text),
             kwargs={"session_number": session_n, "is_important": is_important},
@@ -398,7 +381,6 @@ def send_message(user_text: str = None):
     dpg.disable_item("send_btn")
     dpg.disable_item("user_input")
 
-    # Si hay una tirada pendiente, la incluimos
     if state["last_dice_result"]:
         user_text = f"{user_text}\n\n[RESULTADO DE DADOS: {state['last_dice_result']}]"
         state["last_dice_result"] = None
@@ -406,7 +388,6 @@ def send_message(user_text: str = None):
     state["messages"].append({"role": "user", "content": user_text})
     append_to_chat("user", user_text)
 
-    # Preparar contexto: orquestador de agentes o fallback legacy
     if _AGENT_MODE and _orchestrator:
         try:
             system_content = _orchestrator.get_context_for_phase(state)
@@ -418,7 +399,6 @@ def send_message(user_text: str = None):
 
     messages_to_send = [{"role": "system", "content": system_content}] + state["messages"]
 
-    # Mostrar streaming group
     _is_streaming = True
     _streaming_token = ""
     try:
@@ -436,7 +416,6 @@ def send_message(user_text: str = None):
 #  GUI — DICE PANEL
 # ─────────────────────────────────────────────
 def do_roll(sides: int):
-    """Ejecuta una tirada del dado seleccionado"""
     try:
         n = int(dpg.get_value(f"dice_count_{sides}"))
     except Exception:
@@ -449,7 +428,6 @@ def do_roll(sides: int):
 
     state["last_dice_result"] = f"{n}D{sides}: {result_str}"
 
-    # Mostrar en panel de resultado
     color = list(C_RED_BRIGHT) if total == sides * n else (
         list(C_GOLD) if total >= sides * n * 0.75 else list(C_TEXT)
     )
@@ -458,22 +436,19 @@ def do_roll(sides: int):
     dpg.configure_item("dice_result_total", color=color)
     dpg.set_value("dice_result_detail", result_str)
 
-    # Log GUI
     entry = f"[{datetime.now().strftime('%H:%M')}] {n}D{sides} → {result_str}"
     state["session_log"].append(entry)
     refresh_log()
 
-    # Log vault
     if _vault_writer:
         _vault_writer.log_dice_roll(f"{n}D{sides} → {result_str}")
 
 def build_dice_panel(parent):
     with dpg.group(parent=parent):
-        section_label("⚄  DADOS", parent=parent)
+        section_label("DADOS", parent=parent)
         add_spacer(6)
 
         for sides in DICE_TYPES:
-            label = f"D{sides}"
             with dpg.group(horizontal=True, parent=parent):
                 dpg.add_input_int(
                     tag=f"dice_count_{sides}",
@@ -485,7 +460,7 @@ def build_dice_panel(parent):
                     max_clamped=True,
                 )
                 dpg.add_button(
-                    label=label,
+                    label=f"D{sides}",
                     width=72,
                     height=32,
                     callback=lambda s, a, u=sides: do_roll(u),
@@ -496,28 +471,25 @@ def build_dice_panel(parent):
         dpg.add_separator(parent=parent)
         add_spacer(8)
 
-        # Resultado
-        with dpg.group(parent=parent):
-            dpg.add_text("Última tirada:", color=list(C_TEXT_DIM), parent=parent)
-            dpg.add_text("—", tag="dice_result_main", color=list(C_GOLD_DIM), parent=parent)
-            dpg.add_text("—", tag="dice_result_total", color=list(C_TEXT),
-                         parent=parent)
-            dpg.add_text("", tag="dice_result_detail", color=list(C_TEXT_DIM),
-                         wrap=160, parent=parent)
+        dpg.add_text("Última tirada:", color=list(C_TEXT_DIM), parent=parent)
+        dpg.add_text("—", tag="dice_result_main", color=list(C_GOLD_DIM), parent=parent)
+        dpg.add_text("—", tag="dice_result_total", color=list(C_TEXT), parent=parent)
+        dpg.add_text("", tag="dice_result_detail", color=list(C_TEXT_DIM), wrap=160, parent=parent)
 
         add_spacer(10)
         dpg.add_button(
-            label="Enviar resultado al narrador",
+            label="Enviar resultado",
             parent=parent,
             width=170,
-            callback=lambda: send_message("El resultado de mi tirada fue: " + (state["last_dice_result"] or "ninguna"))
+            callback=lambda: send_message(
+                "El resultado de mi tirada fue: " + (state["last_dice_result"] or "ninguna")
+            )
         )
 
 # ─────────────────────────────────────────────
 #  GUI — CHARACTER SHEET
 # ─────────────────────────────────────────────
 def refresh_character_panel():
-    """Actualiza el panel de personaje con los datos actuales"""
     try:
         dpg.delete_item("char_content", children_only=True)
     except Exception:
@@ -525,8 +497,7 @@ def refresh_character_panel():
 
     char = state["character"]
     if not char:
-        dpg.add_text("Sin personaje creado.", parent="char_content",
-                     color=list(C_TEXT_DIM))
+        dpg.add_text("Sin personaje creado.", parent="char_content", color=list(C_TEXT_DIM))
         dpg.add_spacer(height=6, parent="char_content")
         dpg.add_text("Cargá un manual y pedile\nal narrador que te guíe.",
                      parent="char_content", color=list(C_TEXT_DIM), wrap=160)
@@ -542,18 +513,6 @@ def refresh_character_panel():
                 dpg.add_text(str(val), color=list(C_TEXT), wrap=160)
             add_spacer(4)
 
-def update_character_from_text(text: str):
-    """Intenta extraer datos de personaje del texto del narrador"""
-    # Busca bloques JSON en la respuesta
-    match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            state["character"].update(data)
-            refresh_character_panel()
-        except Exception:
-            pass
-
 # ─────────────────────────────────────────────
 #  GUI — SESSION LOG
 # ─────────────────────────────────────────────
@@ -561,17 +520,71 @@ def refresh_log():
     try:
         dpg.delete_item("log_content", children_only=True)
         for entry in state["session_log"][-20:]:
-            dpg.add_text(entry, parent="log_content", color=list(C_TEXT_DIM),
-                         wrap=160)
+            dpg.add_text(entry, parent="log_content", color=list(C_TEXT_DIM), wrap=160)
             add_spacer(2)
     except Exception:
         pass
 
 # ─────────────────────────────────────────────
+#  GUI — ESTADO (relojes de frentes) — Sprint 3
+# ─────────────────────────────────────────────
+def _clock_bar(tick: int, max_ticks: int) -> str:
+    """Genera una barra ASCII de progreso para el reloj de un frente."""
+    filled = min(tick, max_ticks)
+    bar = "█" * filled + "░" * (max_ticks - filled)
+    return f"[{bar}] {filled}/{max_ticks}"
+
+def refresh_estado_panel():
+    try:
+        dpg.delete_item("estado_content", children_only=True)
+    except Exception:
+        return
+
+    # Número de sesión
+    dpg.add_text(
+        f"Sesión #{state.get('session_number', 1)}",
+        parent="estado_content",
+        color=list(C_GOLD),
+    )
+    dpg.add_separator(parent="estado_content")
+    add_spacer(4)
+
+    # Sistema
+    sys_name = state.get("system_name", "") or "—"
+    dpg.add_text(f"Sistema:", parent="estado_content", color=list(C_TEXT_DIM))
+    dpg.add_text(sys_name, parent="estado_content", color=list(C_TEXT), wrap=155)
+    add_spacer(6)
+
+    # Relojes de frentes
+    if _AGENT_MODE and _orchestrator:
+        try:
+            fronts = _orchestrator.retriever.get_fronts_with_clocks()
+        except Exception:
+            fronts = []
+    else:
+        fronts = []
+
+    if fronts:
+        dpg.add_text("FRENTES:", parent="estado_content", color=list(C_GOLD_DIM))
+        add_spacer(4)
+        for f in fronts:
+            dpg.add_text(f["nombre"], parent="estado_content", color=list(C_TEXT), wrap=155)
+            bar = _clock_bar(f["tick"], f["max"])
+            estado_color = list(C_RED_BRIGHT) if f["estado"] != "latente" else list(C_TEXT_DIM)
+            dpg.add_text(bar, parent="estado_content", color=estado_color)
+            if f.get("escasez"):
+                dpg.add_text(f"  {f['escasez']}", parent="estado_content",
+                             color=list(C_TEXT_DIM), wrap=155)
+            add_spacer(4)
+    else:
+        dpg.add_text("Sin frentes activos.", parent="estado_content", color=list(C_TEXT_DIM))
+        dpg.add_text("Construí el vault primero.", parent="estado_content",
+                     color=list(C_TEXT_DIM), wrap=155)
+
+# ─────────────────────────────────────────────
 #  GUI — PDF LOADER
 # ─────────────────────────────────────────────
 def load_pdf_callback(sender, app_data):
-    """Callback del file dialog de PDF"""
     if not app_data or "file_path_name" not in app_data:
         return
 
@@ -590,7 +603,6 @@ def load_pdf_callback(sender, app_data):
 
         dpg.set_value("manual_status", f"✓ {name}")
         dpg.set_value("system_detected", system_name)
-        # Habilitar botón de construcción de vault
         try:
             dpg.enable_item("build_vault_btn")
         except Exception:
@@ -612,17 +624,15 @@ def load_pdf_callback(sender, app_data):
 
     threading.Thread(target=process, daemon=True).start()
 
-
 # ─────────────────────────────────────────────
 #  GUI — VAULT BUILDER
 # ─────────────────────────────────────────────
 def build_vault_callback():
-    """Lanza el pipeline extractor en un hilo secundario."""
     if not state.get("manual_text"):
         append_to_chat("system", "⚠ Primero cargá un manual PDF.")
         return
     if not _AGENT_MODE:
-        append_to_chat("system", "⚠ Modo agentes no disponible. Verificá la instalación de paquetes.")
+        append_to_chat("system", "⚠ Modo agentes no disponible.")
         return
 
     try:
@@ -640,8 +650,8 @@ def build_vault_callback():
             extractor = ExtractorAgent(llm=llm, builder=pb)
 
             config = _orchestrator.config if _orchestrator else {}
-            vault_path = config.get("vault", {}).get("path", "./vault")
-            template_path = config.get("vault", {}).get("template_path", "./vault_template")
+            vault_path = config.get("vault", {}).get("path", "vault")
+            template_path = config.get("vault", {}).get("template_path", "data/vault_template")
 
             result = extractor.run(
                 pdf_text=state["manual_text"],
@@ -660,6 +670,7 @@ def build_vault_callback():
                 f"Podés abrir la carpeta vault/ en Obsidian."
             )
             append_to_chat("system", summary)
+            refresh_estado_panel()
         except Exception as e:
             append_to_chat("system", f"Error construyendo vault: {e}")
         finally:
@@ -674,12 +685,12 @@ def build_vault_callback():
 #  GUI — QUICK ACTIONS
 # ─────────────────────────────────────────────
 QUICK_ACTIONS = [
-    ("⚔  Atacar", "Quiero atacar al enemigo más cercano."),
-    ("🔍 Investigar", "Examino el entorno en busca de pistas o peligros ocultos."),
-    ("💬 Negociar", "Intento hablar y negociar con el PNJ."),
-    ("🏃 Huir", "Intento escapar de la situación actual."),
-    ("🧘 Descansar", "El grupo se detiene a descansar y recuperarse."),
-    ("❓ Situación", "¿Qué está pasando exactamente? Describí la escena."),
+    ("Atacar", "Quiero atacar al enemigo más cercano."),
+    ("Investigar", "Examino el entorno en busca de pistas o peligros ocultos."),
+    ("Negociar", "Intento hablar y negociar con el PNJ."),
+    ("Huir", "Intento escapar de la situación actual."),
+    ("Descansar", "El grupo se detiene a descansar y recuperarse."),
+    ("Situacion", "¿Qué está pasando exactamente? Describí la escena."),
 ]
 
 # ─────────────────────────────────────────────
@@ -731,7 +742,6 @@ def apply_theme():
 
     dpg.bind_theme(global_theme)
 
-    # Tema especial para botones de dados
     with dpg.theme() as dice_theme:
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, C_RED)
@@ -740,7 +750,6 @@ def apply_theme():
             dpg.add_theme_color(dpg.mvThemeCol_Text, (240, 220, 200, 255))
     state["dice_theme"] = dice_theme
 
-    # Tema para botón enviar
     with dpg.theme() as send_theme:
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, C_GOLD_DIM)
@@ -749,7 +758,6 @@ def apply_theme():
             dpg.add_theme_color(dpg.mvThemeCol_Text, C_BG)
     state["send_theme"] = send_theme
 
-    # Tema para acciones rápidas
     with dpg.theme() as action_theme:
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, (35, 28, 18, 255))
@@ -774,7 +782,6 @@ def build_gui():
 
     apply_theme()
 
-    # File dialog para PDF
     dpg.add_file_dialog(
         tag="pdf_dialog",
         directory_selector=False,
@@ -788,7 +795,6 @@ def build_gui():
     dpg.add_file_extension(".pdf", parent="pdf_dialog", color=list(C_GOLD))
     dpg.add_file_extension(".PDF", parent="pdf_dialog", color=list(C_GOLD))
 
-    # ── VENTANA PRINCIPAL ──────────────────────
     with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
                     no_resize=True, no_scrollbar=True):
 
@@ -797,7 +803,6 @@ def build_gui():
             dpg.add_text("◈  AI NARRATOR", color=list(C_GOLD))
             dpg.add_spacer(width=20)
 
-            # Selector de modelo
             dpg.add_text("Modelo:", color=list(C_TEXT_DIM))
             models = get_models()
             state["models"] = models
@@ -828,7 +833,7 @@ def build_gui():
                 tag="build_vault_btn",
                 label="Construir Vault",
                 callback=build_vault_callback,
-                enabled=False,  # se habilita al cargar PDF
+                enabled=False,
             )
 
             dpg.add_spacer(width=15)
@@ -849,10 +854,8 @@ def build_gui():
                                   border=True, tag="left_panel"):
                 add_spacer(4)
 
-                # Tabs: Personaje / Dados
                 with dpg.tab_bar():
 
-                    # Tab Personaje
                     with dpg.tab(label="Personaje"):
                         add_spacer(6)
                         with dpg.child_window(tag="char_content",
@@ -869,15 +872,9 @@ def build_gui():
                             callback=refresh_character_panel
                         )
 
-                    # Tab Dados
                     with dpg.tab(label="Dados"):
                         add_spacer(6)
                         build_dice_panel(dpg.last_item().__class__)
-                        # Re-build en el tab correcto
-                        # (Dear PyGui: usamos group dentro del tab)
-
-            # ── REARME: dados dentro del tab correctamente ──
-            # (ya construido arriba dentro del with tab)
 
             dpg.add_spacer(width=6)
 
@@ -885,7 +882,6 @@ def build_gui():
             with dpg.child_window(width=WIN_W - 185 - 185 - 30,
                                   height=WIN_H - 80, border=True):
 
-                # Acciones rápidas
                 with dpg.group(horizontal=True):
                     for label, msg in QUICK_ACTIONS[:3]:
                         btn = dpg.add_button(
@@ -894,7 +890,7 @@ def build_gui():
                             callback=lambda s, a, m=msg: send_message(m)
                         )
                         dpg.bind_item_theme(btn, state["action_theme"])
-                dpg.add_spacer(height=4)
+                add_spacer(4)
                 with dpg.group(horizontal=True):
                     for label, msg in QUICK_ACTIONS[3:]:
                         btn = dpg.add_button(
@@ -907,7 +903,6 @@ def build_gui():
                 dpg.add_separator()
                 add_spacer(4)
 
-                # Área de chat scrollable
                 with dpg.child_window(
                     tag="chat_scroll",
                     height=WIN_H - 230,
@@ -923,7 +918,6 @@ def build_gui():
                     )
                     dpg.add_separator()
 
-                    # Streaming indicator
                     with dpg.group(tag="streaming_group", show=False):
                         dpg.add_text("◈  Narrador", color=list(C_GOLD))
                         dpg.add_text("", tag="streaming_label",
@@ -932,7 +926,6 @@ def build_gui():
 
                 add_spacer(4)
 
-                # Input area
                 with dpg.group(horizontal=True):
                     dpg.add_input_text(
                         tag="user_input",
@@ -954,79 +947,83 @@ def build_gui():
 
             dpg.add_spacer(width=6)
 
-            # ══ COLUMNA DERECHA: log de sesión ══
+            # ══ COLUMNA DERECHA: log + estado (tabs) ══
             with dpg.child_window(width=180, height=WIN_H - 80, border=True):
                 add_spacer(4)
-                section_label("📜  LOG DE SESIÓN")
-                add_spacer(6)
-                dpg.add_separator()
-                add_spacer(4)
 
-                with dpg.child_window(tag="log_content",
-                                      height=WIN_H - 200,
-                                      border=False):
-                    dim_text("Sin eventos aún.")
+                with dpg.tab_bar():
 
-                add_spacer(6)
-                dpg.add_button(
-                    label="Limpiar log",
-                    width=-1,
-                    callback=lambda: (
-                        state["session_log"].clear(),
-                        refresh_log()
-                    )
-                )
-                add_spacer(4)
-                dpg.add_button(
-                    label="Nueva sesión",
-                    width=-1,
-                    callback=lambda: (
-                        state.update({
-                            "messages": [],
-                            "character": {},
-                            "session_log": [],
-                            "phase": "idle",
-                            "last_dice_result": None,
-                        }),
-                        dpg.delete_item("chat_scroll", children_only=True),
-                        refresh_character_panel(),
-                        refresh_log(),
-                    )
-                )
+                    # Tab Log
+                    with dpg.tab(label="Log"):
+                        add_spacer(6)
+                        dpg.add_separator()
+                        add_spacer(4)
+                        with dpg.child_window(tag="log_content",
+                                              height=WIN_H - 230,
+                                              border=False):
+                            dim_text("Sin eventos aún.")
 
-    # Necesitamos reconstruir el panel de dados correctamente
-    # debido a cómo Dear PyGui maneja los contextos de tabs
-    _rebuild_dice_tab()
+                        add_spacer(6)
+                        dpg.add_button(
+                            label="Limpiar log",
+                            width=-1,
+                            callback=lambda: (
+                                state["session_log"].clear(),
+                                refresh_log()
+                            )
+                        )
+                        add_spacer(4)
+                        dpg.add_button(
+                            label="Nueva sesión",
+                            width=-1,
+                            callback=lambda: (
+                                state.update({
+                                    "messages": [],
+                                    "character": {},
+                                    "session_log": [],
+                                    "phase": "idle",
+                                    "last_dice_result": None,
+                                }),
+                                dpg.delete_item("chat_scroll", children_only=True),
+                                refresh_character_panel(),
+                                refresh_log(),
+                            )
+                        )
+
+                    # Tab Estado — Sprint 3
+                    with dpg.tab(label="Estado"):
+                        add_spacer(6)
+                        dpg.add_separator()
+                        add_spacer(4)
+                        with dpg.child_window(tag="estado_content",
+                                              height=WIN_H - 230,
+                                              border=False):
+                            dim_text("Cargando estado...")
+
+                        add_spacer(6)
+                        dpg.add_button(
+                            label="Actualizar",
+                            width=-1,
+                            callback=refresh_estado_panel
+                        )
 
     dpg.setup_dearpygui()
     dpg.set_primary_window("main_window", True)
     dpg.show_viewport()
 
-def _rebuild_dice_tab():
-    """
-    Dear PyGui no permite parent dinámico en tabs fácilmente.
-    Los dados ya están construidos en el tab por la lógica del with dpg.tab().
-    Esta función aplica temas a los botones de dados post-construcción.
-    """
-    for sides in DICE_TYPES:
-        try:
-            # Los botones de dados necesitan tema rojo
-            # Tag implícito: no tenemos tag directo, así que buscamos por alias
-            pass
-        except Exception:
-            pass
+    # Poblar panel de estado inicial
+    refresh_estado_panel()
 
 # ─────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────
 def _init_vault_writer():
-    """Inicializa el VaultWriter y arranca el log de la sesión actual."""
     global _vault_writer
     if not _AGENT_MODE:
         return
     try:
         config = _orchestrator.config if _orchestrator else {}
-        vault_path = config.get("vault", {}).get("path", "./vault")
+        vault_path = config.get("vault", {}).get("path", "vault")
         live = config.get("vault", {}).get("live_updates", True)
         if not live:
             return
@@ -1049,7 +1046,6 @@ def main():
     print("╚══════════════════════════════════╝")
     print()
 
-    # Verificar Ollama
     try:
         r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
         models = [m["name"] for m in r.json().get("models", [])]
@@ -1062,12 +1058,9 @@ def main():
         print("  Luego: ollama pull llama3.2")
         print()
 
-    # Intentar cargar sesión previa
     if load_session():
         print("✓ Sesión anterior cargada")
-        state["session_number"] = state.get("session_number", 1)
 
-    # Inicializar vault writer (actualización en tiempo real)
     _init_vault_writer()
 
     build_gui()
@@ -1077,6 +1070,3 @@ def main():
 
     dpg.destroy_context()
     print("Sesión finalizada.")
-
-if __name__ == "__main__":
-    main()

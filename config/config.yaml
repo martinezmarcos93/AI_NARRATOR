@@ -2,38 +2,37 @@
 # TTRPG Narrator — Configuración Global
 # ============================================================
 
-# Sistema activo. Debe coincidir con un archivo en systems/
+# Sistema activo. Debe coincidir con un archivo en data/systems/
 # Opciones: vtm_v20 | dnd_5e | coc_7e | pathfinder_2e | generic
 sistema_activo: "vtm_v20"
 
 # Ruta a los archivos de sistema
-systems_path: "./systems"
+systems_path: "data/systems"
 
 # Configuración del LLM local (Ollama)
 llm:
   backend: "ollama"
   model: "mistral:7b"        # cambiar según RAM disponible
   temperature: 0.85
-  max_tokens_narrador: 600   # tokens para narración
-  max_tokens_npc: 80         # tokens para decisión de NPC (contexto mínimo)
+  max_tokens_narrador: 600
+  max_tokens_npc: 80
   base_url: "http://localhost:11434"
 
 # Configuración del vault
 vault:
-  path: "./vault"
-  template_path: "./vault_template"
-  index_path: "./vault/indice.json"
-  live_updates: true       # escribe al vault en tiempo real durante la sesión (compatible Obsidian)
+  path: "vault"
+  template_path: "data/vault_template"
+  live_updates: true       # escribe al vault durante la sesión (compatible Obsidian)
 
 # Configuración del estado de campaña
 estado:
-  path: "./estado_campana.yaml"
+  path: "estado_campana.yaml"
   auto_save: true
 
 # Logging
 log:
   level: "INFO"
-  file: "./logs/narrator.log"
+  file: "logs/narrator.log"
 
 # Modelos recomendados (referencia):
 # llama3.2      ~2GB RAM  → rápido, calidad básica

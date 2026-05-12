@@ -3,9 +3,9 @@ NPC Routines Agent — simula el comportamiento de NPCs entre escenas y sesiones
 Cada NPC tiene un pool de acciones. El agente elige según estado del mundo.
 """
 
-from core.llm_client import LLMClient
-from core.prompt_builder import PromptBuilder
-from core.state_manager import StateManager
+from narrator.core.llm_client import LLMClient
+from narrator.core.prompt_builder import PromptBuilder
+from narrator.core.state_manager import StateManager
 
 
 class NPCRoutinesAgent:
@@ -15,7 +15,6 @@ class NPCRoutinesAgent:
         self.state = state
 
     def _build_world_state_summary(self, system_slug: str) -> str:
-        """Construye un texto compacto del estado del mundo para dárselo al NPC."""
         location = self.state.get_location() or "locación desconocida"
         session = self.state.get_session_number()
         clocks = self.state.get_clocks_summary()
@@ -37,11 +36,6 @@ class NPCRoutinesAgent:
         system_slug: str,
         world_state: str = "",
     ) -> dict:
-        """
-        Decide qué hace un NPC dado el estado del mundo.
-        npc_data: dict con campos del NPC (nombre, agenda, clan, etc.)
-        Devuelve: {"npc": str, "action": str, "description": str}
-        """
         if not world_state:
             world_state = self._build_world_state_summary(system_slug)
 
@@ -71,24 +65,17 @@ class NPCRoutinesAgent:
         npcs: list[dict],
         system_slug: str,
     ) -> list[dict]:
-        """
-        Simula lo que hacen los NPCs de alta amenaza entre sesiones.
-        npcs: lista de dicts con {"meta": {...}, "body": "..."}
-        Devuelve lista de acciones realizadas, y las registra en el estado.
-        """
+        """Simula lo que hacen los NPCs de alta/media amenaza entre sesiones."""
         world_state = self._build_world_state_summary(system_slug)
         results = []
 
         for npc_entry in npcs:
             meta = npc_entry.get("meta", {})
-            # Solo simular NPCs con amenaza alta o media
             if meta.get("amenaza") not in ("alta", "media"):
                 continue
 
             result = self.get_npc_action(meta, system_slug, world_state)
             results.append(result)
-
-            # Registrar en downtime del estado
             self.state.add_active_npc(result["npc"], result["description"])
 
         if results:

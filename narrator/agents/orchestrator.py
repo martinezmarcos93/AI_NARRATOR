@@ -5,16 +5,16 @@ Es Python puro: no hace llamadas al LLM, solo decide QUÉ contexto armar y QUIÉ
 
 import yaml
 from pathlib import Path
-from core.prompt_builder import PromptBuilder
-from core.retriever import VaultRetriever
-from core.state_manager import StateManager
+from narrator.core.prompt_builder import PromptBuilder
+from narrator.core.retriever import VaultRetriever
+from narrator.core.state_manager import StateManager
 
 
 class Orchestrator:
-    def __init__(self, config_path: str = "./config.yaml"):
+    def __init__(self, config_path: str = "./config/config.yaml"):
         self.config = self._load_config(config_path)
 
-        systems_path = self.config.get("systems_path", "./systems")
+        systems_path = self.config.get("systems_path", "data/systems")
         vault_path = self.config.get("vault", {}).get("path", "./vault")
         state_path = self.config.get("estado", {}).get("path", "./estado_campana.yaml")
 
@@ -32,16 +32,11 @@ class Orchestrator:
 
     # ── Sistema activo ────────────────────────────────────────
     def get_active_system(self, app_state: dict) -> str:
-        """
-        Prioridad: app_state["system_slug"] > config.yaml > "generic"
-        app_state["system_slug"] se setea cuando el usuario carga un PDF.
-        """
         if app_state.get("system_slug"):
             return app_state["system_slug"]
         return self.config.get("sistema_activo", "generic")
 
     def detect_and_set_system(self, text: str, app_state: dict) -> str:
-        """Detecta el sistema desde texto de PDF y lo guarda en app_state."""
         slug = self.builder.detect_system_from_text(text)
         app_state["system_slug"] = slug
         return slug
@@ -55,11 +50,9 @@ class Orchestrator:
         return ""
 
     def build_narrator_context(self, app_state: dict) -> str:
-        """Construye el system prompt completo para el agente narrador."""
         system_slug = self.get_active_system(app_state)
         last_user_msg = self._get_last_user_message(app_state)
 
-        # Contexto del vault (relevante a lo que dijo el jugador)
         vault_ctx = ""
         if not self.retriever.vault_is_empty():
             if last_user_msg:
@@ -67,7 +60,6 @@ class Orchestrator:
             if not vault_ctx:
                 vault_ctx = self.retriever.get_relevant_context("escena NPC frente", max_words=300)
 
-        # Si no hay vault todavía, usar excerpt del manual PDF
         if not vault_ctx:
             manual_text = app_state.get("manual_text", "")
             if manual_text:
@@ -89,7 +81,6 @@ class Orchestrator:
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:
-        """Construye el system prompt para la fase de creación de personaje."""
         system_slug = self.get_active_system(app_state)
         manual_text = app_state.get("manual_text", "")
         return self.builder.build_char_creation_prompt(
@@ -106,5 +97,4 @@ class Orchestrator:
         phase = app_state.get("phase", "idle")
         if phase == "char_creation":
             return self.build_char_creation_context(app_state)
-        # idle o playing → narrador
         return self.build_narrator_context(app_state)

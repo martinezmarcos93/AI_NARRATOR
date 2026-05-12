@@ -12,19 +12,24 @@
 ```bash
 # Instalar Ollama → https://ollama.com
 ollama pull mistral        # ~4GB - buena calidad narrativa (recomendado)
-ollama pull llama3.2       # ~2GB - más rápido, menor calidad
+ollama pull llama3.2       # ~2GB - más rápido
 ollama pull llama3.1:8b    # ~5GB - mejor calidad
 ollama pull gemma3:12b     # ~8GB - excelente
+
+# Opcional — búsqueda semántica (Sprint 3)
+ollama pull nomic-embed-text
 ```
 
 ### 2. Dependencias Python
 ```bash
+pip install -e .
+# o manualmente:
 pip install dearpygui requests PyMuPDF pyyaml python-frontmatter jinja2
 ```
 
 ### 3. Ejecutar
 ```bash
-python narrator.py
+python main.py
 ```
 
 ---
@@ -42,8 +47,40 @@ python narrator.py
 ### Panel de dados
 Seleccioná cantidad y tipo (D4 / D6 / D8 / D10 / D12 / D20). El resultado se envía al narrador con un click.
 
-### Acciones rápidas
-Botones preconfigurados: Atacar, Investigar, Negociar, Huir, Descansar, Situación.
+### Tab Estado (Sprint 3)
+Muestra los relojes de frentes activos con barras de progreso ASCII, el número de sesión y el sistema de juego actual.
+
+---
+
+## Estructura del repositorio
+
+```
+ai-narrator/
+├── main.py                    ← punto de entrada
+├── pyproject.toml             ← dependencias y packaging
+├── config/
+│   └── config.yaml            ← configuración global
+├── narrator/                  ← paquete principal
+│   ├── app.py                 ← GUI (Dear PyGui)
+│   ├── core/
+│   │   ├── llm_client.py      ← wrapper Ollama (streaming + sync)
+│   │   ├── retriever.py       ← búsqueda keyword + semántica en vault
+│   │   ├── embedder.py        ← embeddings via nomic-embed-text (Sprint 3)
+│   │   ├── state_manager.py   ← relojes, flags, historial de sesiones
+│   │   ├── prompt_builder.py  ← ensamblado de prompts desde system YAML + vault
+│   │   └── vault_writer.py    ← escritura en tiempo real al vault (Obsidian)
+│   └── agents/
+│       ├── orchestrator.py    ← coordinador central (Python puro, sin LLM)
+│       ├── extractor_agent.py ← PDF → vault + indexación semántica
+│       ├── narrator_agent.py  ← post-procesamiento de respuestas
+│       └── npc_routines.py    ← simulación de NPCs entre sesiones
+├── data/
+│   ├── systems/               ← configs YAML por sistema de juego
+│   └── vault_template/        ← estructura base del vault
+└── docs/
+    ├── prompts/               ← guía de worldbuilding desde sourcebook
+    └── *.md                   ← técnicas narrativas y diseño
+```
 
 ---
 
@@ -51,7 +88,7 @@ Botones preconfigurados: Atacar, Investigar, Negociar, Huir, Descansar, Situaci�
 
 ```
 PDF
- └─► [Extractor Agent]
+ └─► [Extractor Agent] ─► índice semántico (nomic-embed-text)
           │
           ▼
      VAULT (MD/YAML)          ← memoria compartida entre agentes
@@ -62,8 +99,6 @@ PDF
      [Orquestador]            ← Python puro, sin LLM
      /      |      \
 [Narrador] [Mundo] [NPCs]
-    │          │       │
-    └──────────┴───────┘
           │
           ▼
      GUI (Dear PyGui)
@@ -71,32 +106,19 @@ PDF
 
 Cada agente recibe **solo el fragmento del vault que necesita**. Esto permite usar modelos de 7B con contexto limitado (~2000 palabras) sin perder coherencia.
 
-### Módulos
-
-| Módulo | Responsabilidad |
-|--------|----------------|
-| `core/llm_client.py` | Wrapper Ollama (streaming + sync) |
-| `core/retriever.py` | Búsqueda en vault por tipo / keyword |
-| `core/state_manager.py` | Relojes de frentes, flags, historial de sesiones |
-| `core/prompt_builder.py` | Ensambla prompts desde system YAML + vault |
-| `agents/orchestrator.py` | Orquestador central (Python puro) |
-| `agents/extractor_agent.py` | PDF → vault (pipeline de worldbuilding) |
-| `agents/narrator_agent.py` | Post-procesamiento de respuestas del narrador |
-| `agents/npc_routines.py` | Simulación de comportamiento de NPCs |
-
 ---
 
 ## Sistemas de juego soportados
 
 | Sistema | Archivo config | Estado |
 |---------|---------------|--------|
-| Vampiro: La Mascarada V20 | `systems/vtm_v20.yaml` | Completo |
-| Dungeons & Dragons 5e | `systems/dnd_5e.yaml` | Completo |
-| La Llamada de Cthulhu 7e | `systems/coc_7e.yaml` | Completo |
-| Pathfinder 2e | `systems/pathfinder_2e.yaml` | Completo |
-| Genérico (cualquier TTRPG) | `systems/generic.yaml` | Completo |
+| Vampiro: La Mascarada V20 | `data/systems/vtm_v20.yaml` | Completo |
+| Dungeons & Dragons 5e | `data/systems/dnd_5e.yaml` | Completo |
+| La Llamada de Cthulhu 7e | `data/systems/coc_7e.yaml` | Completo |
+| Pathfinder 2e | `data/systems/pathfinder_2e.yaml` | Completo |
+| Genérico (cualquier TTRPG) | `data/systems/generic.yaml` | Completo |
 
-La detección de sistema es automática al cargar el PDF. Para cambiarlo manualmente, editá `sistema_activo` en `config.yaml`.
+La detección de sistema es automática al cargar el PDF. Para cambiarlo manualmente, editá `sistema_activo` en `config/config.yaml`.
 
 ---
 
@@ -107,30 +129,32 @@ El vault es una carpeta de archivos Markdown con frontmatter YAML, 100% compatib
 ```
 vault/
   00_Dashboard.md       ← punto de entrada con estado de campaña
+  .embeddings.json      ← índice semántico (generado automáticamente)
   NPCs/                 ← un archivo por NPC
   Locaciones/           ← un archivo por locación
   Cofradias/            ← facciones, coteries, manadas
   Frentes/              ← amenazas activas con relojes
   Misterios/            ← investigaciones con nodos y pistas
   Recursos/             ← bangs, tablas, handouts
-  Sesiones/             ← log de sesiones
+  Sesiones/             ← log de sesiones en tiempo real
 ```
 
 **Podés abrir `vault/` como vault de Obsidian** para navegar el mundo, editar NPCs manualmente, ver el graph de conexiones entre entidades, y usar Dataview para dashboards dinámicos.
 
-El sistema narrador lee y escribe el vault en tiempo real. Los cambios que hacés en Obsidian se reflejan en la próxima sesión.
+El narrador lee y escribe el vault en tiempo real. Los cambios que hacés en Obsidian se reflejan en la próxima sesión.
 
 ---
 
 ## Configuración
 
-`config.yaml` controla el sistema activo, modelo LLM y rutas:
+`config/config.yaml` controla el sistema activo, modelo LLM y rutas:
 
 ```yaml
 sistema_activo: "vtm_v20"   # vtm_v20 | dnd_5e | coc_7e | pathfinder_2e | generic
 llm:
   model: "mistral:7b"       # modelo de Ollama a usar
-  base_url: "http://localhost:11434"
+vault:
+  live_updates: true        # actualización en tiempo real (Obsidian)
 ```
 
 ---
@@ -154,12 +178,15 @@ Ver [`ROADMAP.md`](ROADMAP.md) para el estado detallado de desarrollo.
 - [x] GUI funcional (Dear PyGui) con dados, log de sesión, hoja de personaje
 - [x] Integración Ollama con streaming
 - [x] Carga y detección automática de sistema desde PDF
-- [x] Arquitectura de agentes (core/ + agents/)
+- [x] Arquitectura de agentes (`narrator/core/` + `narrator/agents/`)
 - [x] Sistemas: VtM V20, D&D 5e, CoC 7e, Pathfinder 2e, Genérico
 - [x] Vault compatible con Obsidian
 - [x] Extractor agent (PDF → vault automático)
-- [ ] Búsqueda semántica en vault (ChromaDB)
+- [x] Vault writer (Obsidian live updates)
+- [x] Búsqueda semántica en vault (nomic-embed-text via Ollama)
+- [x] Tab Estado con relojes de frentes (Sprint 3)
 - [ ] Soporte multi-PDF
+- [ ] Panel de campaña exportable
 
 ### Fase 2 — IA vs IA (investigación)
 - [ ] Agente jugador IA que recibe escena y devuelve acción
@@ -175,5 +202,7 @@ Ver [`ROADMAP.md`](ROADMAP.md) para el estado detallado de desarrollo.
 **GUI no abre**: Verificá Dear PyGui (`pip install dearpygui`)
 
 **PDF no se carga**: Verificá PyMuPDF (`pip install PyMuPDF`)
+
+**Sin búsqueda semántica**: Instalá el modelo de embeddings (`ollama pull nomic-embed-text`)
 
 **El narrador no actualiza la hoja**: Pedile explícitamente que guarde los datos en formato JSON

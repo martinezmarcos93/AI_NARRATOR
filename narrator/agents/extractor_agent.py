@@ -4,7 +4,7 @@ Implementa las fases 0-2 del Prompt_Generador_Cronica.md de forma automática.
 
 Pipeline:
   texto PDF → extrae NPCs → extrae Locaciones → extrae Facciones
-            → genera Frentes → genera Dashboard
+            → genera Frentes → genera Dashboard → indexa semánticamente
 """
 
 import json
@@ -13,8 +13,9 @@ import shutil
 from pathlib import Path
 from typing import Callable, Optional
 
-from core.llm_client import LLMClient
-from core.prompt_builder import PromptBuilder
+from narrator.core.llm_client import LLMClient
+from narrator.core.prompt_builder import PromptBuilder
+from narrator.core.embedder import Embedder
 
 
 # ── Plantillas de frontmatter por tipo ────────────────────────────────────────
@@ -183,18 +184,12 @@ JSON:"""
 # ── Funciones auxiliares ──────────────────────────────────────────────────────
 
 def _safe_filename(name: str) -> str:
-    """Convierte un nombre en un nombre de archivo válido."""
     name = re.sub(r'[<>:"/\\|?*]', "", name)
     name = re.sub(r'\s+', "_", name.strip())
     return name[:80] or "sin_nombre"
 
 
 def _parse_json_response(text: str) -> list:
-    """
-    Extrae y parsea el primer array JSON de la respuesta del LLM.
-    Robusto frente a texto extra antes/después del JSON.
-    """
-    # Buscar array JSON (puede estar envuelto en ```json ... ```)
     for pattern in [
         r'```json\s*(\[.*?\])\s*```',
         r'```\s*(\[.*?\])\s*```',
@@ -207,7 +202,6 @@ def _parse_json_response(text: str) -> list:
             except json.JSONDecodeError:
                 continue
 
-    # Último intento: el texto completo como JSON
     try:
         result = json.loads(text.strip())
         return result if isinstance(result, list) else []
@@ -339,16 +333,15 @@ class ExtractorAgent:
     def __init__(self, llm: LLMClient, builder: PromptBuilder):
         self.llm = llm
         self.builder = builder
+        self._embedder = Embedder()
 
     def _call(self, prompt: str, max_tokens: int = 800) -> str:
-        """Llamada síncrona al LLM."""
         return self.llm.chat(
             [{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
         )
 
     def _chunk_text(self, text: str, chunk_size: int = 3000, overlap: int = 200) -> list[str]:
-        """Divide el texto en chunks con overlap para no perder contexto entre cortes."""
         chunks = []
         start = 0
         while start < len(text):
@@ -428,14 +421,12 @@ class ExtractorAgent:
     # ── Escritura de archivos ──────────────────────────────────────────────────
 
     def _init_vault_structure(self, vault_path: Path, template_path: Path):
-        """Crea la estructura de carpetas del vault desde vault_template/."""
         if template_path.exists():
             for item in template_path.iterdir():
                 dest = vault_path / item.name
                 if item.is_dir() and not dest.exists():
                     dest.mkdir(parents=True, exist_ok=True)
         else:
-            # Estructura mínima si no hay template
             for folder in ["NPCs", "Locaciones", "Cofradias", "Frentes",
                            "Misterios", "Recursos", "Sesiones", "Notas"]:
                 (vault_path / folder).mkdir(parents=True, exist_ok=True)
@@ -503,6 +494,15 @@ class ExtractorAgent:
         content = _build_dashboard(npcs, locations, factions, fronts, system_name)
         self._write_file(vault_path / "00_Dashboard.md", content)
 
+    def _build_semantic_index(self, vault_path: Path, on_progress=None) -> None:
+        """Indexa semánticamente todos los archivos del vault recién creado."""
+        if not self._embedder.is_available():
+            return
+        on_progress and on_progress("Indexando vault para búsqueda semántica...")
+        index = self._embedder.build_index_for_vault(vault_path, on_progress)
+        if index:
+            on_progress and on_progress(f"  Índice semántico: {len(index)} archivos.")
+
     # ── Pipeline completo ──────────────────────────────────────────────────────
 
     def run(
@@ -511,11 +511,11 @@ class ExtractorAgent:
         system_slug: str,
         system_name: str,
         vault_path: str = "./vault",
-        template_path: str = "./vault_template",
+        template_path: str = "./data/vault_template",
         on_progress: Callable[[str], None] = None,
     ) -> dict:
         """
-        Pipeline completo: texto PDF → vault jugable.
+        Pipeline completo: texto PDF → vault jugable → índice semántico.
         Devuelve un resumen con conteos de lo generado.
         """
         vp = Path(vault_path)
@@ -535,6 +535,8 @@ class ExtractorAgent:
         n_facs = self.write_factions(factions, vp)
         n_fronts = self.write_fronts(fronts, vp)
         self.write_dashboard(npcs, locations, factions, fronts, vp, system_name)
+
+        self._build_semantic_index(vp, on_progress)
 
         on_progress and on_progress("¡Vault construido!")
 
