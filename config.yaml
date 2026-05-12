@@ -23,6 +23,7 @@ vault:
   path: "./vault"
   template_path: "./vault_template"
   index_path: "./vault/indice.json"
+  live_updates: true       # escribe al vault en tiempo real durante la sesión (compatible Obsidian)
 
 # Configuración del estado de campaña
 estado:

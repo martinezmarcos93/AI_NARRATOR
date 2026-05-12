@@ -20,12 +20,18 @@ from datetime import datetime
 try:
     from agents.orchestrator import Orchestrator
     from agents.extractor_agent import ExtractorAgent
+    from agents.narrator_agent import NarratorAgent
     from core.llm_client import LLMClient
     from core.prompt_builder import PromptBuilder
+    from core.vault_writer import VaultWriter
     _orchestrator = Orchestrator()
+    _narrator_agent = NarratorAgent()
+    _vault_writer: "VaultWriter | None" = None  # se inicializa al arrancar sesión
     _AGENT_MODE = True
 except Exception as _agent_err:
     _orchestrator = None
+    _narrator_agent = None
+    _vault_writer = None
     _AGENT_MODE = False
     print(f"⚠ Modo legacy (sin agentes): {_agent_err}")
 
@@ -103,6 +109,7 @@ state = {
     "pending_roll": None,    # dados pedidos por el narrador
     "session_log": [],       # log de eventos clave
     "last_dice_result": None,
+    "session_number": 1,     # número de sesión actual
 }
 
 # ─────────────────────────────────────────────
@@ -321,7 +328,7 @@ def update_streaming_label(chunk: str):
         pass
 
 def finish_streaming(full_text: str):
-    """Termina el streaming, agrega al chat real"""
+    """Termina el streaming, agrega al chat real y actualiza el vault."""
     global _is_streaming, _streaming_token
     _is_streaming = False
     _streaming_token = ""
@@ -335,11 +342,42 @@ def finish_streaming(full_text: str):
     state["messages"].append({"role": "assistant", "content": full_text})
     append_to_chat("assistant", full_text)
 
-    # Log de sesión si parece evento importante
-    if any(w in full_text.lower() for w in ["tirada", "dado", "d20", "d10", "d6", "éxito", "fallo", "consecuencia"]):
+    # Detectar evento importante para el log
+    is_important = False
+    if _narrator_agent:
+        is_important = _narrator_agent.is_important_event(full_text)
+        char_data = _narrator_agent.extract_character_json(full_text)
+        if char_data:
+            state["character"].update(char_data)
+            refresh_character_panel()
+    else:
+        import re as _re
+        is_important = any(
+            w in full_text.lower()
+            for w in ["tirada", "dado", "d20", "éxito", "fallo", "consecuencia"]
+        )
+
+    if is_important:
         entry = f"[{datetime.now().strftime('%H:%M')}] {full_text[:120]}..."
         state["session_log"].append(entry)
         refresh_log()
+
+    # Actualizar vault en tiempo real (hilo separado para no bloquear la GUI)
+    if _vault_writer and _AGENT_MODE:
+        last_user = ""
+        for m in reversed(state["messages"][:-1]):
+            if m.get("role") == "user":
+                last_user = m["content"]
+                break
+        session_n = state.get("session_number", 1)
+
+        import threading as _t
+        _t.Thread(
+            target=_vault_writer.on_narrator_response,
+            args=(last_user, full_text),
+            kwargs={"session_number": session_n, "is_important": is_important},
+            daemon=True,
+        ).start()
 
     dpg.enable_item("send_btn")
     dpg.enable_item("user_input")
@@ -420,10 +458,14 @@ def do_roll(sides: int):
     dpg.configure_item("dice_result_total", color=color)
     dpg.set_value("dice_result_detail", result_str)
 
-    # Log
+    # Log GUI
     entry = f"[{datetime.now().strftime('%H:%M')}] {n}D{sides} → {result_str}"
     state["session_log"].append(entry)
     refresh_log()
+
+    # Log vault
+    if _vault_writer:
+        _vault_writer.log_dice_roll(f"{n}D{sides} → {result_str}")
 
 def build_dice_panel(parent):
     with dpg.group(parent=parent):
@@ -977,10 +1019,33 @@ def _rebuild_dice_tab():
 # ─────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────
+def _init_vault_writer():
+    """Inicializa el VaultWriter y arranca el log de la sesión actual."""
+    global _vault_writer
+    if not _AGENT_MODE:
+        return
+    try:
+        config = _orchestrator.config if _orchestrator else {}
+        vault_path = config.get("vault", {}).get("path", "./vault")
+        live = config.get("vault", {}).get("live_updates", True)
+        if not live:
+            return
+        _vault_writer = VaultWriter(vault_path=vault_path)
+        session_n = state.get("session_number", 1)
+        _vault_writer.start_session(
+            session_number=session_n,
+            system_name=state.get("system_name", ""),
+            campaign_name=state.get("campaign_name", ""),
+        )
+        print(f"✓ Vault writer activo — vault/Sesiones/Sesion_{session_n:02d}_*.md")
+    except Exception as e:
+        print(f"⚠ Vault writer no disponible: {e}")
+
+
 def main():
     print("╔══════════════════════════════════╗")
-    print("║       AI NARRATOR v0.1           ║")
-    print("║  Motor de Rol con Ollama + PyGui ║")
+    print("║       AI NARRATOR v0.2           ║")
+    print("║  Motor de Rol con Agentes+Ollama ║")
     print("╚══════════════════════════════════╝")
     print()
 
@@ -1000,6 +1065,10 @@ def main():
     # Intentar cargar sesión previa
     if load_session():
         print("✓ Sesión anterior cargada")
+        state["session_number"] = state.get("session_number", 1)
+
+    # Inicializar vault writer (actualización en tiempo real)
+    _init_vault_writer()
 
     build_gui()
 
