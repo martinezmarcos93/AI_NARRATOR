@@ -1,0 +1,16 @@
+# Normalize line endings
+* text=auto
+
+# Python
+*.py text eol=lf
+
+# YAML / Markdown
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+
+# Binaries
+*.pdf  binary
+*.docx binary
+*.png  binary
+*.jpg  binary

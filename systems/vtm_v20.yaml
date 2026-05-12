@@ -1,0 +1,98 @@
+# ============================================================
+# Sistema: Vampiro: La Mascarada — V20
+# ============================================================
+
+sistema: "Vampiro: La Mascarada"
+edition: "V20"
+slug: "vtm_v20"
+
+# --- Vocabulario (lo que aparece en prompts y plantillas) ---
+vocabulario:
+  grupo_pc: "manada"
+  faccion_term: "cofradia"
+  lider_term: "Ductus"
+  asistente_lider_term: "Sacerdote"
+  territorio_term: "territorio"
+  personaje_term: "vampiro"
+  npc_agrupador: "clan"
+  mecanica_moral: "Humanidad / Senda de Iluminación"
+  mecanica_central: "Disciplinas"
+  eje_horror: "erosión de la humanidad y la Mascarada"
+  ritual_union: "Vaulderie"
+  corte_term: "Elíseo"
+
+# --- Campos custom para fichas de NPC ---
+npc_campos_extra:
+  - nombre: "clan"
+    label: "Clan"
+    tipo: "string"
+  - nombre: "generacion"
+    label: "Generación"
+    tipo: "integer"
+  - nombre: "senda"
+    label: "Senda de Iluminación"
+    tipo: "string"
+  - nombre: "disciplinas"
+    label: "Disciplinas"
+    tipo: "lista"
+  - nombre: "cofradia"
+    label: "Cofradía / Coterie"
+    tipo: "wikilink"
+
+# --- Campos custom para fichas de Facción ---
+faccion_campos_extra:
+  - nombre: "ductus"
+    label: "Ductus"
+    tipo: "wikilink"
+  - nombre: "sacerdote"
+    label: "Sacerdote"
+    tipo: "wikilink"
+  - nombre: "pack_tactics"
+    label: "Tácticas de Manada"
+    tipo: "string"
+
+# --- Pool de acciones de NPCs (para simulación entre sesiones) ---
+npc_acciones:
+  - "defender su territorio"
+  - "presionar territorio rival"
+  - "alimentarse (caza discreta)"
+  - "asistir a la Corte / Elíseo"
+  - "reunirse con su cofradia"
+  - "reclutar ghoul o vasallo"
+  - "recolectar información sobre los PJs"
+  - "manipular a un mortal clave"
+  - "ejecutar un ritual de Blood Bond"
+  - "planear traición a un aliado"
+  - "establecer contacto con otra secta"
+  - "resguardarse (amenaza detectada)"
+
+# --- Amenazas externas típicas (para Frentes) ---
+amenazas_externas:
+  - "Segunda Inquisición"
+  - "Cazadores"
+  - "Lupinos"
+  - "Camarilla (si es ciudad Sabbat)"
+  - "Sabbat (si es ciudad Camarilla)"
+  - "Inquisición Medieval"
+
+# --- Prompt de sistema base para el LLM ---
+# Este texto se inyecta al inicio de cada llamada al modelo
+llm_system_prompt: |
+  Eres un narrador de Vampiro: La Mascarada (edición V20).
+  Tu tono es oscuro, gótico y opresivo. Evocás horror a través de dilemas
+  morales, no de gore gratuito.
+  Reglas estrictas:
+  - No inventés nombres de clanes, disciplinas ni personajes que no estén en el contexto.
+  - No contradecís la información del vault que se te proporciona.
+  - No revelés secretos que el personaje en escena no conocería.
+  - Respondé en español rioplatense.
+  - Limitá la respuesta a 2-3 párrafos narrativos (máximo 250 palabras).
+  - Si se te pide un menú de opciones, ofrecé exactamente 3, sin respuesta correcta.
+
+# --- Etiquetas Dataview por defecto para este sistema ---
+tags_por_tipo:
+  npc: ["npc", "vampiro"]
+  locacion: ["locacion"]
+  frente: ["frente", "amenaza"]
+  misterio: ["misterio"]
+  faccion: ["cofradia", "faccion"]

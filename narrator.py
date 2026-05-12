@@ -1,0 +1,1013 @@
+"""
+AI NARRATOR — Motor de Rol con Ollama
+======================================
+GUI: Dear PyGui  |  Backend: core/ + agents/
+Requiere: pip install dearpygui requests PyMuPDF pyyaml python-frontmatter jinja2
+Requiere: Ollama corriendo en localhost:11434
+"""
+
+import dearpygui.dearpygui as dpg
+import requests
+import threading
+import json
+import random
+import re
+from pathlib import Path
+from datetime import datetime
+
+# ── Backend de agentes ────────────────────────────────────
+# Carga con fallback: si el package no está listo, usa modo legacy.
+try:
+    from agents.orchestrator import Orchestrator
+    from agents.extractor_agent import ExtractorAgent
+    from core.llm_client import LLMClient
+    from core.prompt_builder import PromptBuilder
+    _orchestrator = Orchestrator()
+    _AGENT_MODE = True
+except Exception as _agent_err:
+    _orchestrator = None
+    _AGENT_MODE = False
+    print(f"⚠ Modo legacy (sin agentes): {_agent_err}")
+
+# ─────────────────────────────────────────────
+#  CONFIGURACIÓN GLOBAL
+# ─────────────────────────────────────────────
+OLLAMA_URL = "http://localhost:11434"
+APP_TITLE  = "AI NARRATOR"
+WIN_W, WIN_H = 1400, 900
+
+# Paleta: tinta oscura + pergamino + rojo sangre + oro
+C_BG          = (12, 10, 8, 255)       # negro tinta
+C_PANEL       = (22, 18, 14, 255)      # marrón muy oscuro
+C_SURFACE     = (32, 26, 20, 255)      # superficie panel
+C_BORDER      = (80, 55, 30, 255)      # borde dorado oscuro
+C_GOLD        = (180, 140, 60, 255)    # dorado principal
+C_GOLD_DIM    = (120, 90, 35, 255)     # dorado apagado
+C_RED         = (160, 35, 35, 255)     # rojo sangre
+C_RED_BRIGHT  = (200, 50, 40, 255)     # rojo brillante
+C_TEXT        = (220, 205, 180, 255)   # pergamino claro
+C_TEXT_DIM    = (140, 120, 90, 255)    # texto atenuado
+C_TEXT_DARK   = (80, 65, 45, 255)      # texto oscuro
+C_INPUT_BG    = (18, 14, 10, 255)      # fondo input
+C_HOVER       = (45, 35, 22, 255)      # hover
+C_ACTIVE      = (60, 45, 25, 255)      # activo
+C_SUCCESS     = (60, 130, 70, 255)     # verde éxito
+C_DICE_BG     = (28, 22, 15, 255)      # fondo dados
+
+# Prompt de respaldo para modo legacy (sin agentes)
+_SYSTEM_PROMPT_LEGACY = """
+Eres un Narrador de juegos de rol de élite. Experto en Mundo de Tinieblas, D&D, Pathfinder, Call of Cthulhu y sistemas PbtA.
+
+FILOSOFÍA CENTRAL:
+- La historia EMERGE de las decisiones de los jugadores, no está pre-escrita
+- Nunca hagas railroading
+- Cada escena debe tener tensión (física, emocional, psicológica, moral o existencial)
+- Los fallos SIEMPRE avanzan la historia con complicaciones interesantes
+- El mundo recuerda las acciones: consecuencias persistentes
+
+NARRACIÓN ATMOSFÉRICA:
+- Describe usando todos los sentidos: sonido, textura, olor, luz, sensación espacial
+- El entorno refleja estados psicológicos
+- Muestra, nunca expliques directamente ("Los guardias dejan de sonreír cuando pasa el carruaje del obispo")
+- Dosifica información: el misterio parcial es más poderoso que la revelación total
+
+SISTEMA DE RESOLUCIÓN:
+Cuando el jugador quiera hacer algo con riesgo:
+1. Indicá qué habilidad/atributo aplica según el sistema
+2. Indicá qué dados lanzar (ej: "Tirá 1D20 + tu modificador de Destreza")
+3. Cuando recibas el resultado, narrá las consecuencias con riqueza cinematográfica
+4. En éxito parcial (PbtA 7-9): ofrecé una elección difícil
+5. En fallo: avanzá la historia con una complicación, nunca "simplemente fallás"
+
+CREACIÓN DE PERSONAJE:
+1. Detectá el sistema de juego del manual cargado
+2. Proponé opciones con menús numerados y sabor narrativo
+3. Construí la hoja progresivamente, preguntando de a una sección
+
+TONO: Adaptá el vocabulario al sistema. Respondé en español rioplatense.
+"""
+
+# ─────────────────────────────────────────────
+#  ESTADO GLOBAL
+# ─────────────────────────────────────────────
+state = {
+    "model": "llama3.2",
+    "models": [],
+    "messages": [],          # historial de chat [{role, content}]
+    "character": {},         # hoja de personaje
+    "manual_text": "",       # texto extraído del PDF
+    "manual_name": "",
+    "system_name": "",       # sistema detectado (nombre display)
+    "system_slug": "generic",# sistema detectado (slug para config)
+    "phase": "idle",         # idle | char_creation | playing
+    "pending_roll": None,    # dados pedidos por el narrador
+    "session_log": [],       # log de eventos clave
+    "last_dice_result": None,
+}
+
+# ─────────────────────────────────────────────
+#  OLLAMA API
+# ─────────────────────────────────────────────
+def get_models():
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        if r.status_code == 200:
+            return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+def stream_chat(messages, callback, done_callback):
+    """Stream chat completion from Ollama"""
+    payload = {
+        "model": state["model"],
+        "messages": messages,
+        "stream": True,
+        "options": {"temperature": 0.85, "top_p": 0.9}
+    }
+    try:
+        with requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+            stream=True,
+            timeout=120
+        ) as resp:
+            full = ""
+            for line in resp.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        chunk = data.get("message", {}).get("content", "")
+                        if chunk:
+                            full += chunk
+                            callback(chunk)
+                        if data.get("done"):
+                            break
+                    except Exception:
+                        pass
+            done_callback(full)
+    except Exception as e:
+        done_callback(f"[Error de conexión: {e}]")
+
+# ─────────────────────────────────────────────
+#  PDF PROCESSING
+# ─────────────────────────────────────────────
+def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
+    """Extrae texto del PDF limitando tamaño para el contexto"""
+    try:
+        doc = fitz.open(path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+            if len(text) > max_chars:
+                break
+        doc.close()
+        return text[:max_chars]
+    except Exception as e:
+        return f"Error leyendo PDF: {e}"
+
+def detect_system(text: str) -> tuple[str, str]:
+    """
+    Detecta el sistema de juego del texto del manual.
+    Devuelve (display_name, slug).
+    """
+    # Si tenemos el orquestador, delegar la detección al PromptBuilder
+    if _AGENT_MODE and _orchestrator:
+        slug = _orchestrator.detect_and_set_system(text, state)
+        names = {
+            "vtm_v20": "Mundo de Tinieblas (Vampiro V20)",
+            "dnd_5e": "Dungeons & Dragons 5e",
+            "pathfinder_2e": "Pathfinder 2e",
+            "coc_7e": "La Llamada de Cthulhu 7e",
+            "generic": "Sistema Genérico",
+        }
+        return names.get(slug, "Sistema Desconocido"), slug
+
+    # Fallback manual
+    t = text.lower()
+    if any(w in t for w in ["vampiro", "mascarada", "brujah", "toreador", "camarilla", "malkavian"]):
+        return "Mundo de Tinieblas (Vampiro V20)", "vtm_v20"
+    if any(w in t for w in ["hombre lobo", "garou", "apocalipsis", "tribus"]):
+        return "Mundo de Tinieblas (Hombre Lobo)", "vtm_v20"
+    if any(w in t for w in ["pathfinder", "golarion", "paizo"]):
+        return "Pathfinder 2e", "pathfinder_2e"
+    if any(w in t for w in ["dungeon", "d&d", "dungeons", "cleric", "paladin", "tiefling"]):
+        return "Dungeons & Dragons 5e", "dnd_5e"
+    if any(w in t for w in ["call of cthulhu", "investigador", "cordura", "mythos"]):
+        return "La Llamada de Cthulhu 7e", "coc_7e"
+    if any(w in t for w in ["pbta", "powered by", "maestro de ceremonias"]):
+        return "PbtA (Genérico)", "generic"
+    return "Sistema Desconocido", "generic"
+
+
+def _build_legacy_context() -> str:
+    """Contexto de respaldo cuando el orquestador no está disponible."""
+    content = _SYSTEM_PROMPT_LEGACY
+    if state["manual_text"]:
+        content += f"\n\n=== MANUAL: {state['manual_name']} ===\n{state['manual_text'][:6000]}"
+    if state["character"]:
+        content += f"\n\n=== PERSONAJE ===\n{json.dumps(state['character'], ensure_ascii=False, indent=2)}"
+    return content
+
+# ─────────────────────────────────────────────
+#  DICE ENGINE
+# ─────────────────────────────────────────────
+DICE_TYPES = [4, 6, 8, 10, 12, 20]
+
+def roll_dice(n: int, sides: int) -> list[int]:
+    return [random.randint(1, sides) for _ in range(n)]
+
+def format_roll_result(rolls: list[int], sides: int, modifier: int = 0) -> str:
+    total = sum(rolls) + modifier
+    rolls_str = " + ".join(str(r) for r in rolls)
+    if modifier != 0:
+        sign = "+" if modifier > 0 else ""
+        return f"[{rolls_str}]{sign}{modifier} = {total}"
+    return f"[{rolls_str}] = {total}"
+
+# ─────────────────────────────────────────────
+#  SAVE/LOAD
+# ─────────────────────────────────────────────
+SAVE_DIR = Path.home() / ".ai_narrator"
+SAVE_DIR.mkdir(exist_ok=True)
+
+def save_session():
+    data = {
+        "character": state["character"],
+        "messages": state["messages"][-40:],  # últimos 40 mensajes
+        "system_name": state["system_name"],
+        "system_slug": state["system_slug"],
+        "manual_name": state["manual_name"],
+        "session_log": state["session_log"],
+        "phase": state["phase"],
+        "timestamp": datetime.now().isoformat()
+    }
+    path = SAVE_DIR / "session.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return str(path)
+
+def load_session():
+    path = SAVE_DIR / "session.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        state.update({
+            "character": data.get("character", {}),
+            "messages": data.get("messages", []),
+            "system_name": data.get("system_name", ""),
+            "system_slug": data.get("system_slug", "generic"),
+            "manual_name": data.get("manual_name", ""),
+            "session_log": data.get("session_log", []),
+            "phase": data.get("phase", "idle"),
+        })
+        return True
+    return False
+
+# ─────────────────────────────────────────────
+#  GUI — HELPERS
+# ─────────────────────────────────────────────
+def add_spacer(h=8):
+    dpg.add_spacer(height=h)
+
+def section_label(text, parent=None):
+    kwargs = {"label": text, "color": list(C_GOLD)}
+    if parent:
+        kwargs["parent"] = parent
+    dpg.add_text(**kwargs)
+
+def dim_text(text, parent=None):
+    kwargs = {"label": text, "color": list(C_TEXT_DIM)}
+    if parent:
+        kwargs["parent"] = parent
+    dpg.add_text(**kwargs)
+
+# ─────────────────────────────────────────────
+#  GUI — CHAT
+# ─────────────────────────────────────────────
+_streaming_token = ""
+_is_streaming = False
+
+def append_to_chat(role: str, text: str):
+    """Agrega mensaje al historial visual"""
+    if role == "user":
+        color = list(C_GOLD)
+        prefix = "▶  Vos"
+    elif role == "assistant":
+        color = list(C_TEXT)
+        prefix = "◈  Narrador"
+    else:
+        color = list(C_TEXT_DIM)
+        prefix = "◦  Sistema"
+
+    with dpg.group(parent="chat_scroll"):
+        dpg.add_text(prefix, color=color)
+        dpg.add_text(text, color=list(C_TEXT), wrap=780)
+        dpg.add_separator()
+        add_spacer(4)
+
+    # Auto-scroll
+    dpg.set_y_scroll("chat_scroll", dpg.get_y_scroll_max("chat_scroll"))
+
+def update_streaming_label(chunk: str):
+    """Actualiza label de streaming en tiempo real"""
+    global _streaming_token
+    _streaming_token += chunk
+    # Truncar para display (Dear PyGui no wrappea bien en update)
+    display = _streaming_token[-600:] if len(_streaming_token) > 600 else _streaming_token
+    try:
+        dpg.set_value("streaming_label", display)
+    except Exception:
+        pass
+
+def finish_streaming(full_text: str):
+    """Termina el streaming, agrega al chat real"""
+    global _is_streaming, _streaming_token
+    _is_streaming = False
+    _streaming_token = ""
+
+    try:
+        dpg.set_value("streaming_label", "")
+        dpg.configure_item("streaming_group", show=False)
+    except Exception:
+        pass
+
+    state["messages"].append({"role": "assistant", "content": full_text})
+    append_to_chat("assistant", full_text)
+
+    # Log de sesión si parece evento importante
+    if any(w in full_text.lower() for w in ["tirada", "dado", "d20", "d10", "d6", "éxito", "fallo", "consecuencia"]):
+        entry = f"[{datetime.now().strftime('%H:%M')}] {full_text[:120]}..."
+        state["session_log"].append(entry)
+        refresh_log()
+
+    dpg.enable_item("send_btn")
+    dpg.enable_item("user_input")
+
+def send_message(user_text: str = None):
+    global _is_streaming, _streaming_token
+
+    if _is_streaming:
+        return
+
+    if user_text is None:
+        user_text = dpg.get_value("user_input").strip()
+
+    if not user_text:
+        return
+
+    dpg.set_value("user_input", "")
+    dpg.disable_item("send_btn")
+    dpg.disable_item("user_input")
+
+    # Si hay una tirada pendiente, la incluimos
+    if state["last_dice_result"]:
+        user_text = f"{user_text}\n\n[RESULTADO DE DADOS: {state['last_dice_result']}]"
+        state["last_dice_result"] = None
+
+    state["messages"].append({"role": "user", "content": user_text})
+    append_to_chat("user", user_text)
+
+    # Preparar contexto: orquestador de agentes o fallback legacy
+    if _AGENT_MODE and _orchestrator:
+        try:
+            system_content = _orchestrator.get_context_for_phase(state)
+        except Exception as _e:
+            print(f"⚠ Error en orquestador, usando modo legacy: {_e}")
+            system_content = _build_legacy_context()
+    else:
+        system_content = _build_legacy_context()
+
+    messages_to_send = [{"role": "system", "content": system_content}] + state["messages"]
+
+    # Mostrar streaming group
+    _is_streaming = True
+    _streaming_token = ""
+    try:
+        dpg.configure_item("streaming_group", show=True)
+        dpg.set_value("streaming_label", "▍")
+    except Exception:
+        pass
+
+    def run():
+        stream_chat(messages_to_send, update_streaming_label, finish_streaming)
+
+    threading.Thread(target=run, daemon=True).start()
+
+# ─────────────────────────────────────────────
+#  GUI — DICE PANEL
+# ─────────────────────────────────────────────
+def do_roll(sides: int):
+    """Ejecuta una tirada del dado seleccionado"""
+    try:
+        n = int(dpg.get_value(f"dice_count_{sides}"))
+    except Exception:
+        n = 1
+    n = max(1, min(n, 20))
+
+    rolls = roll_dice(n, sides)
+    total = sum(rolls)
+    result_str = format_roll_result(rolls, sides)
+
+    state["last_dice_result"] = f"{n}D{sides}: {result_str}"
+
+    # Mostrar en panel de resultado
+    color = list(C_RED_BRIGHT) if total == sides * n else (
+        list(C_GOLD) if total >= sides * n * 0.75 else list(C_TEXT)
+    )
+    dpg.set_value("dice_result_main", f"{n}D{sides}")
+    dpg.set_value("dice_result_total", str(total))
+    dpg.configure_item("dice_result_total", color=color)
+    dpg.set_value("dice_result_detail", result_str)
+
+    # Log
+    entry = f"[{datetime.now().strftime('%H:%M')}] {n}D{sides} → {result_str}"
+    state["session_log"].append(entry)
+    refresh_log()
+
+def build_dice_panel(parent):
+    with dpg.group(parent=parent):
+        section_label("⚄  DADOS", parent=parent)
+        add_spacer(6)
+
+        for sides in DICE_TYPES:
+            label = f"D{sides}"
+            with dpg.group(horizontal=True, parent=parent):
+                dpg.add_input_int(
+                    tag=f"dice_count_{sides}",
+                    default_value=1,
+                    min_value=1,
+                    max_value=20,
+                    width=55,
+                    min_clamped=True,
+                    max_clamped=True,
+                )
+                dpg.add_button(
+                    label=label,
+                    width=72,
+                    height=32,
+                    callback=lambda s, a, u=sides: do_roll(u),
+                )
+            add_spacer(4)
+
+        add_spacer(10)
+        dpg.add_separator(parent=parent)
+        add_spacer(8)
+
+        # Resultado
+        with dpg.group(parent=parent):
+            dpg.add_text("Última tirada:", color=list(C_TEXT_DIM), parent=parent)
+            dpg.add_text("—", tag="dice_result_main", color=list(C_GOLD_DIM), parent=parent)
+            dpg.add_text("—", tag="dice_result_total", color=list(C_TEXT),
+                         parent=parent)
+            dpg.add_text("", tag="dice_result_detail", color=list(C_TEXT_DIM),
+                         wrap=160, parent=parent)
+
+        add_spacer(10)
+        dpg.add_button(
+            label="Enviar resultado al narrador",
+            parent=parent,
+            width=170,
+            callback=lambda: send_message("El resultado de mi tirada fue: " + (state["last_dice_result"] or "ninguna"))
+        )
+
+# ─────────────────────────────────────────────
+#  GUI — CHARACTER SHEET
+# ─────────────────────────────────────────────
+def refresh_character_panel():
+    """Actualiza el panel de personaje con los datos actuales"""
+    try:
+        dpg.delete_item("char_content", children_only=True)
+    except Exception:
+        return
+
+    char = state["character"]
+    if not char:
+        dpg.add_text("Sin personaje creado.", parent="char_content",
+                     color=list(C_TEXT_DIM))
+        dpg.add_spacer(height=6, parent="char_content")
+        dpg.add_text("Cargá un manual y pedile\nal narrador que te guíe.",
+                     parent="char_content", color=list(C_TEXT_DIM), wrap=160)
+        return
+
+    for key, val in char.items():
+        with dpg.group(horizontal=False, parent="char_content"):
+            dpg.add_text(str(key).upper(), color=list(C_GOLD_DIM))
+            if isinstance(val, dict):
+                for k2, v2 in val.items():
+                    dpg.add_text(f"  {k2}: {v2}", color=list(C_TEXT), wrap=160)
+            else:
+                dpg.add_text(str(val), color=list(C_TEXT), wrap=160)
+            add_spacer(4)
+
+def update_character_from_text(text: str):
+    """Intenta extraer datos de personaje del texto del narrador"""
+    # Busca bloques JSON en la respuesta
+    match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            state["character"].update(data)
+            refresh_character_panel()
+        except Exception:
+            pass
+
+# ─────────────────────────────────────────────
+#  GUI — SESSION LOG
+# ─────────────────────────────────────────────
+def refresh_log():
+    try:
+        dpg.delete_item("log_content", children_only=True)
+        for entry in state["session_log"][-20:]:
+            dpg.add_text(entry, parent="log_content", color=list(C_TEXT_DIM),
+                         wrap=160)
+            add_spacer(2)
+    except Exception:
+        pass
+
+# ─────────────────────────────────────────────
+#  GUI — PDF LOADER
+# ─────────────────────────────────────────────
+def load_pdf_callback(sender, app_data):
+    """Callback del file dialog de PDF"""
+    if not app_data or "file_path_name" not in app_data:
+        return
+
+    path = app_data["file_path_name"]
+    name = Path(path).name
+
+    dpg.set_value("manual_status", f"Cargando {name}...")
+
+    def process():
+        text = extract_pdf_text(path)
+        system_name, system_slug = detect_system(text)
+        state["manual_text"] = text
+        state["manual_name"] = name
+        state["system_name"] = system_name
+        state["system_slug"] = system_slug
+
+        dpg.set_value("manual_status", f"✓ {name}")
+        dpg.set_value("system_detected", system_name)
+        # Habilitar botón de construcción de vault
+        try:
+            dpg.enable_item("build_vault_btn")
+        except Exception:
+            pass
+
+        append_to_chat("system", f"Manual cargado: {name}\nSistema: {system_name}")
+
+        analysis_prompt = (
+            f"Acabo de cargar el manual '{name}'. "
+            f"Sistema detectado: {system_name}. "
+            f"Presentame las opciones principales para crear un personaje "
+            f"(clanes, razas, clases, arquetipos según el sistema) "
+            f"con un menú numerado y sabor narrativo. "
+            f"Cuando elija, guiame por las secciones de la hoja. "
+            f"Incluí datos del personaje en bloques ```json``` para actualizar la hoja."
+        )
+        state["phase"] = "char_creation"
+        send_message(analysis_prompt)
+
+    threading.Thread(target=process, daemon=True).start()
+
+
+# ─────────────────────────────────────────────
+#  GUI — VAULT BUILDER
+# ─────────────────────────────────────────────
+def build_vault_callback():
+    """Lanza el pipeline extractor en un hilo secundario."""
+    if not state.get("manual_text"):
+        append_to_chat("system", "⚠ Primero cargá un manual PDF.")
+        return
+    if not _AGENT_MODE:
+        append_to_chat("system", "⚠ Modo agentes no disponible. Verificá la instalación de paquetes.")
+        return
+
+    try:
+        dpg.disable_item("build_vault_btn")
+    except Exception:
+        pass
+
+    def on_progress(msg: str):
+        append_to_chat("system", msg)
+
+    def run():
+        try:
+            llm = LLMClient(model=state["model"])
+            pb = PromptBuilder()
+            extractor = ExtractorAgent(llm=llm, builder=pb)
+
+            config = _orchestrator.config if _orchestrator else {}
+            vault_path = config.get("vault", {}).get("path", "./vault")
+            template_path = config.get("vault", {}).get("template_path", "./vault_template")
+
+            result = extractor.run(
+                pdf_text=state["manual_text"],
+                system_slug=state["system_slug"],
+                system_name=state["system_name"],
+                vault_path=vault_path,
+                template_path=template_path,
+                on_progress=on_progress,
+            )
+            summary = (
+                f"Vault construido:\n"
+                f"  NPCs: {result['npcs']}\n"
+                f"  Locaciones: {result['locaciones']}\n"
+                f"  Facciones: {result['facciones']}\n"
+                f"  Frentes: {result['frentes']}\n"
+                f"Podés abrir la carpeta vault/ en Obsidian."
+            )
+            append_to_chat("system", summary)
+        except Exception as e:
+            append_to_chat("system", f"Error construyendo vault: {e}")
+        finally:
+            try:
+                dpg.enable_item("build_vault_btn")
+            except Exception:
+                pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+# ─────────────────────────────────────────────
+#  GUI — QUICK ACTIONS
+# ─────────────────────────────────────────────
+QUICK_ACTIONS = [
+    ("⚔  Atacar", "Quiero atacar al enemigo más cercano."),
+    ("🔍 Investigar", "Examino el entorno en busca de pistas o peligros ocultos."),
+    ("💬 Negociar", "Intento hablar y negociar con el PNJ."),
+    ("🏃 Huir", "Intento escapar de la situación actual."),
+    ("🧘 Descansar", "El grupo se detiene a descansar y recuperarse."),
+    ("❓ Situación", "¿Qué está pasando exactamente? Describí la escena."),
+]
+
+# ─────────────────────────────────────────────
+#  GUI — THEME
+# ─────────────────────────────────────────────
+def apply_theme():
+    with dpg.theme() as global_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, C_BG)
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, C_PANEL)
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, C_SURFACE)
+            dpg.add_theme_color(dpg.mvThemeCol_Border, C_BORDER)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, C_INPUT_BG)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, C_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, C_ACTIVE)
+            dpg.add_theme_color(dpg.mvThemeCol_Button, C_SURFACE)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, C_ACTIVE)
+            dpg.add_theme_color(dpg.mvThemeCol_Header, C_SURFACE)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, C_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, C_ACTIVE)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, C_PANEL)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, C_SURFACE)
+            dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, C_PANEL)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, C_BG)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, C_BORDER)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, C_GOLD_DIM)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, C_GOLD)
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, C_GOLD)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, C_GOLD)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, C_GOLD)
+            dpg.add_theme_color(dpg.mvThemeCol_Text, C_TEXT)
+            dpg.add_theme_color(dpg.mvThemeCol_Separator, C_BORDER)
+            dpg.add_theme_color(dpg.mvThemeCol_SeparatorHovered, C_GOLD_DIM)
+            dpg.add_theme_color(dpg.mvThemeCol_Tab, C_PANEL)
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered, C_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive, C_SURFACE)
+
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_TabRounding, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_PopupRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 5)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 12, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_ScrollbarSize, 10)
+
+    dpg.bind_theme(global_theme)
+
+    # Tema especial para botones de dados
+    with dpg.theme() as dice_theme:
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, C_RED)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_RED_BRIGHT)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (220, 60, 45, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (240, 220, 200, 255))
+    state["dice_theme"] = dice_theme
+
+    # Tema para botón enviar
+    with dpg.theme() as send_theme:
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, C_GOLD_DIM)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_GOLD)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (200, 160, 70, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, C_BG)
+    state["send_theme"] = send_theme
+
+    # Tema para acciones rápidas
+    with dpg.theme() as action_theme:
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (35, 28, 18, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (55, 43, 25, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, C_ACTIVE)
+            dpg.add_theme_color(dpg.mvThemeCol_Text, C_GOLD)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 2)
+    state["action_theme"] = action_theme
+
+# ─────────────────────────────────────────────
+#  GUI — MAIN WINDOW
+# ─────────────────────────────────────────────
+def build_gui():
+    dpg.create_context()
+    dpg.create_viewport(
+        title=APP_TITLE,
+        width=WIN_W,
+        height=WIN_H,
+        min_width=900,
+        min_height=600,
+    )
+
+    apply_theme()
+
+    # File dialog para PDF
+    dpg.add_file_dialog(
+        tag="pdf_dialog",
+        directory_selector=False,
+        show=False,
+        callback=load_pdf_callback,
+        width=700,
+        height=450,
+        modal=True,
+        default_filename="",
+    )
+    dpg.add_file_extension(".pdf", parent="pdf_dialog", color=list(C_GOLD))
+    dpg.add_file_extension(".PDF", parent="pdf_dialog", color=list(C_GOLD))
+
+    # ── VENTANA PRINCIPAL ──────────────────────
+    with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
+                    no_resize=True, no_scrollbar=True):
+
+        # ─── HEADER BAR ───────────────────────
+        with dpg.group(horizontal=True):
+            dpg.add_text("◈  AI NARRATOR", color=list(C_GOLD))
+            dpg.add_spacer(width=20)
+
+            # Selector de modelo
+            dpg.add_text("Modelo:", color=list(C_TEXT_DIM))
+            models = get_models()
+            state["models"] = models
+            if not models:
+                models = ["(sin Ollama)"]
+            dpg.add_combo(
+                tag="model_selector",
+                items=models,
+                default_value=models[0],
+                width=200,
+                callback=lambda s, a: state.update({"model": a})
+            )
+
+            dpg.add_spacer(width=15)
+            dpg.add_text("Manual:", color=list(C_TEXT_DIM))
+            dpg.add_text("(ninguno)", tag="manual_status", color=list(C_TEXT_DIM))
+            dpg.add_button(
+                label="  Cargar PDF  ",
+                callback=lambda: dpg.show_item("pdf_dialog"),
+            )
+
+            dpg.add_spacer(width=15)
+            dpg.add_text("Sistema:", color=list(C_TEXT_DIM))
+            dpg.add_text("—", tag="system_detected", color=list(C_TEXT_DIM))
+
+            dpg.add_spacer(width=15)
+            dpg.add_button(
+                tag="build_vault_btn",
+                label="Construir Vault",
+                callback=build_vault_callback,
+                enabled=False,  # se habilita al cargar PDF
+            )
+
+            dpg.add_spacer(width=15)
+            dpg.add_button(
+                label="Guardar sesión",
+                callback=lambda: (save_session(),
+                                  append_to_chat("system", "Sesión guardada."))
+            )
+
+        dpg.add_separator()
+        add_spacer(4)
+
+        # ─── LAYOUT PRINCIPAL (3 columnas) ────
+        with dpg.group(horizontal=True):
+
+            # ══ COLUMNA IZQUIERDA: personaje + dados ══
+            with dpg.child_window(width=185, height=WIN_H - 80,
+                                  border=True, tag="left_panel"):
+                add_spacer(4)
+
+                # Tabs: Personaje / Dados
+                with dpg.tab_bar():
+
+                    # Tab Personaje
+                    with dpg.tab(label="Personaje"):
+                        add_spacer(6)
+                        with dpg.child_window(tag="char_content",
+                                              height=WIN_H - 220,
+                                              border=False):
+                            dim_text("Sin personaje creado.")
+                            add_spacer(4)
+                            dim_text("Cargá un manual\ny pedile al narrador\nque te guíe.")
+
+                        add_spacer(6)
+                        dpg.add_button(
+                            label="Actualizar hoja",
+                            width=-1,
+                            callback=refresh_character_panel
+                        )
+
+                    # Tab Dados
+                    with dpg.tab(label="Dados"):
+                        add_spacer(6)
+                        build_dice_panel(dpg.last_item().__class__)
+                        # Re-build en el tab correcto
+                        # (Dear PyGui: usamos group dentro del tab)
+
+            # ── REARME: dados dentro del tab correctamente ──
+            # (ya construido arriba dentro del with tab)
+
+            dpg.add_spacer(width=6)
+
+            # ══ COLUMNA CENTRAL: chat ══
+            with dpg.child_window(width=WIN_W - 185 - 185 - 30,
+                                  height=WIN_H - 80, border=True):
+
+                # Acciones rápidas
+                with dpg.group(horizontal=True):
+                    for label, msg in QUICK_ACTIONS[:3]:
+                        btn = dpg.add_button(
+                            label=label,
+                            width=120,
+                            callback=lambda s, a, m=msg: send_message(m)
+                        )
+                        dpg.bind_item_theme(btn, state["action_theme"])
+                dpg.add_spacer(height=4)
+                with dpg.group(horizontal=True):
+                    for label, msg in QUICK_ACTIONS[3:]:
+                        btn = dpg.add_button(
+                            label=label,
+                            width=120,
+                            callback=lambda s, a, m=msg: send_message(m)
+                        )
+                        dpg.bind_item_theme(btn, state["action_theme"])
+
+                dpg.add_separator()
+                add_spacer(4)
+
+                # Área de chat scrollable
+                with dpg.child_window(
+                    tag="chat_scroll",
+                    height=WIN_H - 230,
+                    border=False,
+                    horizontal_scrollbar=False,
+                ):
+                    dpg.add_text(
+                        "Bienvenido al AI Narrator.\n"
+                        "Cargá un manual PDF para comenzar la creación de personaje,\n"
+                        "o escribí directamente para iniciar una aventura.",
+                        color=list(C_TEXT_DIM),
+                        wrap=780
+                    )
+                    dpg.add_separator()
+
+                    # Streaming indicator
+                    with dpg.group(tag="streaming_group", show=False):
+                        dpg.add_text("◈  Narrador", color=list(C_GOLD))
+                        dpg.add_text("", tag="streaming_label",
+                                     color=list(C_TEXT), wrap=780)
+                        dpg.add_separator()
+
+                add_spacer(4)
+
+                # Input area
+                with dpg.group(horizontal=True):
+                    dpg.add_input_text(
+                        tag="user_input",
+                        hint="Escribí tu acción o pregunta...",
+                        width=-85,
+                        height=50,
+                        multiline=False,
+                        on_enter=True,
+                        callback=lambda s, a: send_message()
+                    )
+                    send_btn = dpg.add_button(
+                        tag="send_btn",
+                        label="Enviar",
+                        width=80,
+                        height=50,
+                        callback=send_message
+                    )
+                    dpg.bind_item_theme(send_btn, state["send_theme"])
+
+            dpg.add_spacer(width=6)
+
+            # ══ COLUMNA DERECHA: log de sesión ══
+            with dpg.child_window(width=180, height=WIN_H - 80, border=True):
+                add_spacer(4)
+                section_label("📜  LOG DE SESIÓN")
+                add_spacer(6)
+                dpg.add_separator()
+                add_spacer(4)
+
+                with dpg.child_window(tag="log_content",
+                                      height=WIN_H - 200,
+                                      border=False):
+                    dim_text("Sin eventos aún.")
+
+                add_spacer(6)
+                dpg.add_button(
+                    label="Limpiar log",
+                    width=-1,
+                    callback=lambda: (
+                        state["session_log"].clear(),
+                        refresh_log()
+                    )
+                )
+                add_spacer(4)
+                dpg.add_button(
+                    label="Nueva sesión",
+                    width=-1,
+                    callback=lambda: (
+                        state.update({
+                            "messages": [],
+                            "character": {},
+                            "session_log": [],
+                            "phase": "idle",
+                            "last_dice_result": None,
+                        }),
+                        dpg.delete_item("chat_scroll", children_only=True),
+                        refresh_character_panel(),
+                        refresh_log(),
+                    )
+                )
+
+    # Necesitamos reconstruir el panel de dados correctamente
+    # debido a cómo Dear PyGui maneja los contextos de tabs
+    _rebuild_dice_tab()
+
+    dpg.setup_dearpygui()
+    dpg.set_primary_window("main_window", True)
+    dpg.show_viewport()
+
+def _rebuild_dice_tab():
+    """
+    Dear PyGui no permite parent dinámico en tabs fácilmente.
+    Los dados ya están construidos en el tab por la lógica del with dpg.tab().
+    Esta función aplica temas a los botones de dados post-construcción.
+    """
+    for sides in DICE_TYPES:
+        try:
+            # Los botones de dados necesitan tema rojo
+            # Tag implícito: no tenemos tag directo, así que buscamos por alias
+            pass
+        except Exception:
+            pass
+
+# ─────────────────────────────────────────────
+#  MAIN
+# ─────────────────────────────────────────────
+def main():
+    print("╔══════════════════════════════════╗")
+    print("║       AI NARRATOR v0.1           ║")
+    print("║  Motor de Rol con Ollama + PyGui ║")
+    print("╚══════════════════════════════════╝")
+    print()
+
+    # Verificar Ollama
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        models = [m["name"] for m in r.json().get("models", [])]
+        print(f"✓ Ollama conectado. Modelos: {', '.join(models) if models else 'ninguno'}")
+        if models:
+            state["model"] = models[0]
+    except Exception:
+        print("⚠ No se encontró Ollama en localhost:11434")
+        print("  Instalar: https://ollama.com")
+        print("  Luego: ollama pull llama3.2")
+        print()
+
+    # Intentar cargar sesión previa
+    if load_session():
+        print("✓ Sesión anterior cargada")
+
+    build_gui()
+
+    while dpg.is_dearpygui_running():
+        dpg.render_dearpygui_frame()
+
+    dpg.destroy_context()
+    print("Sesión finalizada.")
+
+if __name__ == "__main__":
+    main()

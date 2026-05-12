@@ -1,0 +1,95 @@
+# ============================================================
+# Sistema: Dungeons & Dragons — 5ª Edición
+# ============================================================
+
+sistema: "Dungeons & Dragons"
+edition: "5e"
+slug: "dnd_5e"
+
+# --- Vocabulario ---
+vocabulario:
+  grupo_pc: "grupo de aventureros"
+  faccion_term: "faccion"
+  lider_term: "Líder de Facción"
+  asistente_lider_term: "Lugarteniente"
+  territorio_term: "feudo"
+  personaje_term: "aventurero"
+  npc_agrupador: "raza"
+  mecanica_moral: "Alineamiento"
+  mecanica_central: "Clases y Habilidades"
+  eje_horror: "corrupción, maldición y poder corruptor"
+  ritual_union: "Juramento de Compañía"
+  corte_term: "Salón del Consejo"
+
+# --- Campos custom NPC ---
+npc_campos_extra:
+  - nombre: "raza"
+    label: "Raza"
+    tipo: "string"
+  - nombre: "clase"
+    label: "Clase / Oficio"
+    tipo: "string"
+  - nombre: "nivel_poder"
+    label: "Nivel de Poder"
+    tipo: "integer"
+  - nombre: "alineamiento"
+    label: "Alineamiento"
+    tipo: "string"
+  - nombre: "faccion"
+    label: "Facción"
+    tipo: "wikilink"
+
+# --- Campos custom Facción ---
+faccion_campos_extra:
+  - nombre: "lider"
+    label: "Líder"
+    tipo: "wikilink"
+  - nombre: "base_operaciones"
+    label: "Base de Operaciones"
+    tipo: "wikilink"
+  - nombre: "simbolo"
+    label: "Símbolo"
+    tipo: "string"
+
+# --- Pool de acciones de NPCs (para simulación entre sesiones) ---
+npc_acciones:
+  - "patrullar su feudo"
+  - "reclutar mercenarios"
+  - "reunirse con su facción"
+  - "recolectar información sobre los PJs"
+  - "avanzar su objetivo principal"
+  - "eliminar un obstáculo menor"
+  - "establecer una alianza nueva"
+  - "preparar una trampa o emboscada"
+  - "negociar con un rival"
+  - "lanzar un hechizo ritual"
+  - "saquear o robar recursos"
+  - "corromper a un oficial"
+
+# --- Amenazas externas típicas ---
+amenazas_externas:
+  - "Cultos demoníacos"
+  - "Imperio expansionista"
+  - "Ejército de No-Muertos"
+  - "Dragón en la región"
+  - "Plaga mágica"
+  - "Invasión del Plano de Sombras"
+
+# --- Prompt de sistema LLM ---
+llm_system_prompt: |
+  Eres un Dungeon Master de Dungeons & Dragons 5ª Edición.
+  Tu tono es épico, con elementos de fantasía oscura y aventura.
+  Reglas estrictas:
+  - No inventés razas, hechizos ni facciones que no estén en el contexto.
+  - No contradecís la información del vault que se te proporciona.
+  - Respondé en español rioplatense.
+  - Limitá la respuesta a 2-3 párrafos narrativos (máximo 250 palabras).
+  - Si se te pide un menú de opciones, ofrecé exactamente 3, sin respuesta correcta.
+
+# --- Tags Dataview ---
+tags_por_tipo:
+  npc: ["npc", "personaje"]
+  locacion: ["locacion"]
+  frente: ["frente", "amenaza"]
+  misterio: ["misterio"]
+  faccion: ["faccion", "gremio"]

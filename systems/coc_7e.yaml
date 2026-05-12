@@ -1,0 +1,98 @@
+# ============================================================
+# Sistema: La Llamada de Cthulhu — 7ª Edición
+# ============================================================
+
+sistema: "La Llamada de Cthulhu"
+edition: "7e"
+slug: "coc_7e"
+
+# --- Vocabulario ---
+vocabulario:
+  grupo_pc: "grupo de investigadores"
+  faccion_term: "culto"
+  lider_term: "Gran Sacerdote"
+  asistente_lider_term: "Iniciado Mayor"
+  territorio_term: "área de influencia"
+  personaje_term: "investigador"
+  npc_agrupador: "ocupacion"
+  mecanica_moral: "Cordura"
+  mecanica_central: "Habilidades y Cordura"
+  eje_horror: "pérdida de cordura y lo incomprensible"
+  ritual_union: "Pacto de Investigación"
+  corte_term: "Club de Caballeros"
+
+# --- Campos custom NPC ---
+npc_campos_extra:
+  - nombre: "ocupacion"
+    label: "Ocupación"
+    tipo: "string"
+  - nombre: "cordura"
+    label: "Cordura"
+    tipo: "integer"
+  - nombre: "mitos"
+    label: "Conocimiento de los Mitos"
+    tipo: "integer"
+  - nombre: "afiliacion"
+    label: "Afiliación (culto / organización)"
+    tipo: "wikilink"
+  - nombre: "era"
+    label: "Era"
+    tipo: "string"   # 1920s, moderno, etc.
+
+# --- Campos custom Facción ---
+faccion_campos_extra:
+  - nombre: "deidad_venerada"
+    label: "Deidad Venerada"
+    tipo: "string"
+  - nombre: "ritual_principal"
+    label: "Ritual Principal"
+    tipo: "string"
+  - nombre: "nivel_infiltracion"
+    label: "Nivel de Infiltración Social"
+    tipo: "string"
+
+# --- Pool de acciones de NPCs (para simulación entre sesiones) ---
+npc_acciones:
+  - "observar a los investigadores sin ser visto"
+  - "eliminar evidencia comprometedora"
+  - "reclutar nuevos cultistas"
+  - "preparar un ritual"
+  - "presionar a un testigo para que calle"
+  - "recolectar tomos o artefactos"
+  - "infiltrar una organización legítima"
+  - "contactar una entidad exterior"
+  - "asesinar a un investigador aislado"
+  - "corromper a una figura de autoridad"
+  - "desestabilizar la cordura de un testigo"
+  - "esconderse y esperar"
+
+# --- Amenazas externas típicas ---
+amenazas_externas:
+  - "Culto de Cthulhu"
+  - "Nyarlathotep manifestado"
+  - "Mi-Go"
+  - "Secta de los Profundos"
+  - "Organización Thule"
+  - "Agencia gubernamental encubridora"
+
+# --- Prompt de sistema LLM ---
+llm_system_prompt: |
+  Eres el Guardián (Keeper) de La Llamada de Cthulhu, 7ª Edición.
+  Tu tono es de horror cósmico: la realidad no es lo que parece, los humanos
+  son insignificantes frente a lo que acecha más allá. El horror es lento,
+  psicológico, inevitable.
+  Reglas estrictas:
+  - No inventés entidades, grimorios ni cultos que no estén en el contexto.
+  - No contradecís la información del vault que se te proporciona.
+  - Nunca describas lo sobrenatural de forma directa — insinuá, sugerí, perturbá.
+  - Respondé en español rioplatense.
+  - Limitá la respuesta a 2-3 párrafos (máximo 250 palabras).
+  - Si se te pide un menú de opciones, ofrecé exactamente 3. Ninguna es segura.
+
+# --- Tags Dataview ---
+tags_por_tipo:
+  npc: ["npc", "investigador", "cultista"]
+  locacion: ["locacion"]
+  frente: ["frente", "amenaza-cosmica"]
+  misterio: ["misterio", "investigacion"]
+  faccion: ["culto", "organizacion"]

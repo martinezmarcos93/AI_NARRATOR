@@ -1,0 +1,29 @@
+# Vault activo (contenido personal de campaña — abrí en Obsidian)
+vault/
+!vault_template/
+
+# Estado de campaña (datos de partida en curso)
+estado_campana.yaml
+
+# Sesión guardada de narrator.py
+~/.ai_narrator/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.env
+
+# Logs
+logs/
+
+# Archivos del editor / herramientas
+.claude/
+*.docx
+
+# OS
+.DS_Store
+Thumbs.db
+Thumbs.db:encdata

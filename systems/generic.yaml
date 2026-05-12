@@ -1,0 +1,80 @@
+# ============================================================
+# Sistema: Genérico (cualquier TTRPG no listado)
+# ============================================================
+
+sistema: "Sistema Genérico"
+edition: "libre"
+slug: "generic"
+
+# --- Vocabulario ---
+vocabulario:
+  grupo_pc: "grupo de personajes"
+  faccion_term: "organizacion"
+  lider_term: "Líder"
+  asistente_lider_term: "Segundo al mando"
+  territorio_term: "territorio"
+  personaje_term: "personaje"
+  npc_agrupador: "tipo"
+  mecanica_moral: "Valores"
+  mecanica_central: "Habilidades"
+  eje_horror: "consecuencias y dilemas morales"
+  ritual_union: "Acuerdo de Grupo"
+  corte_term: "Lugar de reunión"
+
+# --- Campos custom NPC (mínimo universal) ---
+npc_campos_extra:
+  - nombre: "tipo"
+    label: "Tipo de Personaje"
+    tipo: "string"
+  - nombre: "poder"
+    label: "Nivel de Poder"
+    tipo: "string"
+  - nombre: "afiliacion"
+    label: "Afiliación"
+    tipo: "wikilink"
+
+# --- Campos custom Facción ---
+faccion_campos_extra:
+  - nombre: "lider"
+    label: "Líder"
+    tipo: "wikilink"
+  - nombre: "base"
+    label: "Base"
+    tipo: "wikilink"
+
+# --- Pool de acciones de NPCs (para simulación entre sesiones) ---
+npc_acciones:
+  - "observar y esperar"
+  - "reunirse con aliados"
+  - "avanzar agenda propia"
+  - "recolectar información"
+  - "reclutar colaboradores"
+  - "eliminar un obstáculo"
+  - "negociar con un rival"
+  - "preparar un plan"
+
+# --- Amenazas externas ---
+amenazas_externas:
+  - "Facción antagonista"
+  - "Amenaza sobrenatural"
+  - "Autoridad represora"
+  - "Catástrofe inminente"
+
+# --- Prompt de sistema LLM ---
+llm_system_prompt: |
+  Eres un narrador de juego de rol de mesa.
+  Tu tono se adapta al mundo que se te describe en el contexto.
+  Reglas estrictas:
+  - No inventés nombres, lugares ni facciones que no estén en el contexto.
+  - No contradecís la información del vault que se te proporciona.
+  - Respondé en español rioplatense.
+  - Limitá la respuesta a 2-3 párrafos narrativos (máximo 250 palabras).
+  - Si se te pide un menú de opciones, ofrecé exactamente 3, sin respuesta correcta.
+
+# --- Tags Dataview ---
+tags_por_tipo:
+  npc: ["npc"]
+  locacion: ["locacion"]
+  frente: ["frente"]
+  misterio: ["misterio"]
+  faccion: ["faccion"]

@@ -1,0 +1,105 @@
+# ============================================================
+# Sistema: Pathfinder — 2ª Edición
+# ============================================================
+
+sistema: "Pathfinder"
+edition: "2e"
+slug: "pathfinder_2e"
+
+# --- Vocabulario ---
+vocabulario:
+  grupo_pc: "grupo de aventureros"
+  faccion_term: "faccion"
+  lider_term: "Líder de Facción"
+  asistente_lider_term: "Lugarteniente"
+  territorio_term: "reino / dominio"
+  personaje_term: "héroe"
+  npc_agrupador: "ancestro"
+  mecanica_moral: "Alineamiento"
+  mecanica_central: "Clases, Hazañas y Hechizos"
+  eje_horror: "corrupción, ambición y el precio del poder"
+  ritual_union: "Pacto de Compañía"
+  corte_term: "Concejo de la Ciudad"
+
+# --- Campos custom NPC ---
+npc_campos_extra:
+  - nombre: "ancestro"
+    label: "Ancestro (raza)"
+    tipo: "string"
+  - nombre: "clase"
+    label: "Clase / Profesión"
+    tipo: "string"
+  - nombre: "nivel"
+    label: "Nivel"
+    tipo: "integer"
+  - nombre: "alineamiento"
+    label: "Alineamiento"
+    tipo: "string"
+  - nombre: "faccion"
+    label: "Facción"
+    tipo: "wikilink"
+  - nombre: "rareza"
+    label: "Rareza"
+    tipo: "string"   # común, poco común, raro, único
+
+# --- Campos custom Facción ---
+faccion_campos_extra:
+  - nombre: "lider"
+    label: "Líder"
+    tipo: "wikilink"
+  - nombre: "base_operaciones"
+    label: "Base de Operaciones"
+    tipo: "wikilink"
+  - nombre: "reputacion"
+    label: "Reputación"
+    tipo: "string"
+  - nombre: "rangos"
+    label: "Rangos de Reputación"
+    tipo: "lista"
+
+# --- Amenazas externas típicas ---
+amenazas_externas:
+  - "Culto de divinidad maligna"
+  - "Ejército de No-Muertos"
+  - "Invasión demoníaca (Worldwound / Rifts)"
+  - "Agencia de espionaje rival"
+  - "Dragón despertado"
+  - "Plaga mágica"
+  - "Tormenta de magia salvaje"
+
+# --- Pool de acciones de NPCs (para simulación entre sesiones) ---
+npc_acciones:
+  - "patrullar su territorio"
+  - "reclutar aliados"
+  - "reunirse con su facción"
+  - "recolectar información sobre los PJs"
+  - "avanzar su objetivo principal"
+  - "eliminar un obstáculo menor"
+  - "establecer un contacto nuevo"
+  - "preparar una emboscada"
+  - "negociar con un rival"
+  - "ejecutar un ritual o ceremonia"
+  - "defender sus recursos"
+  - "presionar por deuda de favores"
+
+# --- Prompt de sistema LLM ---
+llm_system_prompt: |
+  Eres un Game Master de Pathfinder 2ª Edición.
+  Tu tono es de fantasía épica con profundidad política y dilemas morales.
+  El mundo de Golarion (o el setting activo) es rico en lore y consecuencias.
+  Reglas estrictas:
+  - No inventés ancestros, clases ni facciones que no estén en el contexto.
+  - No contradecís la información del vault que se te proporciona.
+  - Usá el sistema de tres acciones de PF2e cuando sea relevante.
+  - Respondé en español rioplatense.
+  - Limitá la respuesta a 2-3 párrafos narrativos (máximo 250 palabras).
+  - Si se te pide un menú de opciones, ofrecé exactamente 3, sin respuesta correcta.
+  - Las tiradas de Percepción, Atletismo, Diplomacia, etc. usan d20 + modificador.
+
+# --- Tags Dataview ---
+tags_por_tipo:
+  npc: ["npc", "personaje"]
+  locacion: ["locacion"]
+  frente: ["frente", "amenaza"]
+  misterio: ["misterio"]
+  faccion: ["faccion", "organizacion"]
