@@ -4,6 +4,7 @@ El vault son archivos Markdown con frontmatter YAML.
 Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible).
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -203,7 +204,6 @@ class VaultRetriever:
         result = []
         for f in fronts:
             m = f["meta"]
-            import re
             body = f["body"]
             checked = len(re.findall(r"\[x\]", body, re.IGNORECASE))
             total = len(re.findall(r"\[.\]", body))

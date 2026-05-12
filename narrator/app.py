@@ -8,6 +8,7 @@ import dearpygui.dearpygui as dpg
 import fitz  # PyMuPDF
 import requests
 import threading
+import queue as _queue_mod
 import json
 import random
 import re
@@ -115,6 +116,15 @@ state = {
     "last_dice_result": None,
     "session_number": 1,
 }
+
+# ─────────────────────────────────────────────
+#  COLA THREAD-SAFE PARA ACTUALIZACIONES DE DPG
+# ─────────────────────────────────────────────
+_ui_queue: "_queue_mod.Queue" = _queue_mod.Queue()
+
+def _ui(fn):
+    """Encola una función para ejecutarse en el hilo principal de DPG."""
+    _ui_queue.put(fn)
 
 # ─────────────────────────────────────────────
 #  OLLAMA API
@@ -312,32 +322,24 @@ def update_streaming_label(chunk: str):
     global _streaming_token
     _streaming_token += chunk
     display = _streaming_token[-600:] if len(_streaming_token) > 600 else _streaming_token
-    try:
-        dpg.set_value("streaming_label", display)
-    except Exception:
-        pass
+    _ui(lambda d=display: dpg.set_value("streaming_label", d))
 
 def finish_streaming(full_text: str):
     global _is_streaming, _streaming_token
     _is_streaming = False
     _streaming_token = ""
 
-    try:
-        dpg.set_value("streaming_label", "")
-        dpg.configure_item("streaming_group", show=False)
-    except Exception:
-        pass
-
+    # Procesamiento sin DPG — hilo worker
     state["messages"].append({"role": "assistant", "content": full_text})
-    append_to_chat("assistant", full_text)
 
     is_important = False
+    needs_char_refresh = False
     if _narrator_agent:
         is_important = _narrator_agent.is_important_event(full_text)
         char_data = _narrator_agent.extract_character_json(full_text)
         if char_data:
             state["character"].update(char_data)
-            refresh_character_panel()
+            needs_char_refresh = True
     else:
         is_important = any(
             w in full_text.lower()
@@ -347,7 +349,6 @@ def finish_streaming(full_text: str):
     if is_important:
         entry = f"[{datetime.now().strftime('%H:%M')}] {full_text[:120]}..."
         state["session_log"].append(entry)
-        refresh_log()
 
     if _vault_writer and _AGENT_MODE:
         last_user = ""
@@ -356,7 +357,6 @@ def finish_streaming(full_text: str):
                 last_user = m["content"]
                 break
         session_n = state.get("session_number", 1)
-
         threading.Thread(
             target=_vault_writer.on_narrator_response,
             args=(last_user, full_text),
@@ -364,8 +364,25 @@ def finish_streaming(full_text: str):
             daemon=True,
         ).start()
 
-    dpg.enable_item("send_btn")
-    dpg.enable_item("user_input")
+    # Actualizaciones de DPG — encoladas para el hilo principal
+    _refresh_char = needs_char_refresh
+    _refresh_log = is_important
+
+    def _ui_update():
+        try:
+            dpg.set_value("streaming_label", "")
+            dpg.configure_item("streaming_group", show=False)
+        except Exception:
+            pass
+        append_to_chat("assistant", full_text)
+        if _refresh_char:
+            refresh_character_panel()
+        if _refresh_log:
+            refresh_log()
+        dpg.enable_item("send_btn")
+        dpg.enable_item("user_input")
+
+    _ui(_ui_update)
 
 def send_message(user_text: str = None):
     global _is_streaming, _streaming_token
@@ -446,47 +463,46 @@ def do_roll(sides: int):
         _vault_writer.log_dice_roll(f"{n}D{sides} → {result_str}")
 
 def build_dice_panel(parent):
-    with dpg.group(parent=parent):
-        section_label("DADOS", parent=parent)
-        add_spacer(6)
+    section_label("DADOS", parent=parent)
+    dpg.add_spacer(height=6, parent=parent)
 
-        for sides in DICE_TYPES:
-            with dpg.group(horizontal=True, parent=parent):
-                dpg.add_input_int(
-                    tag=f"dice_count_{sides}",
-                    default_value=1,
-                    min_value=1,
-                    max_value=20,
-                    width=55,
-                    min_clamped=True,
-                    max_clamped=True,
-                )
-                dpg.add_button(
-                    label=f"D{sides}",
-                    width=72,
-                    height=32,
-                    callback=lambda s, a, u=sides: do_roll(u),
-                )
-            add_spacer(4)
-
-        add_spacer(10)
-        dpg.add_separator(parent=parent)
-        add_spacer(8)
-
-        dpg.add_text("Última tirada:", color=list(C_TEXT_DIM), parent=parent)
-        dpg.add_text("—", tag="dice_result_main", color=list(C_GOLD_DIM), parent=parent)
-        dpg.add_text("—", tag="dice_result_total", color=list(C_TEXT), parent=parent)
-        dpg.add_text("", tag="dice_result_detail", color=list(C_TEXT_DIM), wrap=160, parent=parent)
-
-        add_spacer(10)
-        dpg.add_button(
-            label="Enviar resultado",
-            parent=parent,
-            width=170,
-            callback=lambda: send_message(
-                "El resultado de mi tirada fue: " + (state["last_dice_result"] or "ninguna")
+    for sides in DICE_TYPES:
+        with dpg.group(horizontal=True, parent=parent):
+            dpg.add_input_int(
+                tag=f"dice_count_{sides}",
+                default_value=1,
+                min_value=1,
+                max_value=20,
+                width=55,
+                min_clamped=True,
+                max_clamped=True,
             )
+            dpg.add_button(
+                label=f"D{sides}",
+                width=72,
+                height=32,
+                callback=lambda s, a, u=sides: do_roll(u),
+            )
+        dpg.add_spacer(height=4, parent=parent)
+
+    dpg.add_spacer(height=10, parent=parent)
+    dpg.add_separator(parent=parent)
+    dpg.add_spacer(height=8, parent=parent)
+
+    dpg.add_text("Última tirada:", color=list(C_TEXT_DIM), parent=parent)
+    dpg.add_text("—", tag="dice_result_main", color=list(C_GOLD_DIM), parent=parent)
+    dpg.add_text("—", tag="dice_result_total", color=list(C_TEXT), parent=parent)
+    dpg.add_text("", tag="dice_result_detail", color=list(C_TEXT_DIM), wrap=160, parent=parent)
+
+    dpg.add_spacer(height=10, parent=parent)
+    dpg.add_button(
+        label="Enviar resultado",
+        parent=parent,
+        width=170,
+        callback=lambda: send_message(
+            "El resultado de mi tirada fue: " + (state["last_dice_result"] or "ninguna")
         )
+    )
 
 # ─────────────────────────────────────────────
 #  GUI — CHARACTER SHEET
@@ -523,7 +539,7 @@ def refresh_log():
         dpg.delete_item("log_content", children_only=True)
         for entry in state["session_log"][-20:]:
             dpg.add_text(entry, parent="log_content", color=list(C_TEXT_DIM), wrap=160)
-            add_spacer(2)
+            dpg.add_spacer(height=2, parent="log_content")
     except Exception:
         pass
 
@@ -549,13 +565,13 @@ def refresh_estado_panel():
         color=list(C_GOLD),
     )
     dpg.add_separator(parent="estado_content")
-    add_spacer(4)
+    dpg.add_spacer(height=4, parent="estado_content")
 
     # Sistema
     sys_name = state.get("system_name", "") or "—"
     dpg.add_text(f"Sistema:", parent="estado_content", color=list(C_TEXT_DIM))
     dpg.add_text(sys_name, parent="estado_content", color=list(C_TEXT), wrap=155)
-    add_spacer(6)
+    dpg.add_spacer(height=6, parent="estado_content")
 
     # Relojes de frentes
     if _AGENT_MODE and _orchestrator:
@@ -568,7 +584,7 @@ def refresh_estado_panel():
 
     if fronts:
         dpg.add_text("FRENTES:", parent="estado_content", color=list(C_GOLD_DIM))
-        add_spacer(4)
+        dpg.add_spacer(height=4, parent="estado_content")
         for f in fronts:
             dpg.add_text(f["nombre"], parent="estado_content", color=list(C_TEXT), wrap=155)
             bar = _clock_bar(f["tick"], f["max"])
@@ -577,7 +593,7 @@ def refresh_estado_panel():
             if f.get("escasez"):
                 dpg.add_text(f"  {f['escasez']}", parent="estado_content",
                              color=list(C_TEXT_DIM), wrap=155)
-            add_spacer(4)
+            dpg.add_spacer(height=4, parent="estado_content")
     else:
         dpg.add_text("Sin frentes activos.", parent="estado_content", color=list(C_TEXT_DIM))
         dpg.add_text("Construí el vault primero.", parent="estado_content",
@@ -599,8 +615,10 @@ def add_supplement_callback(sender, app_data):
         state["manual_text"] += separator + text
         state["manual_names"].append(name)
         names_str = ", ".join(state["manual_names"])
-        dpg.set_value("manual_status", f"✓ {names_str}")
-        append_to_chat("system", f"Suplemento añadido: {name}")
+        _ui(lambda ns=names_str, n=name: (
+            dpg.set_value("manual_status", f"✓ {ns}"),
+            append_to_chat("system", f"Suplemento añadido: {n}"),
+        ))
 
     threading.Thread(target=process, daemon=True).start()
 
@@ -695,7 +713,7 @@ def run_world_agent():
         pass
 
     def on_progress(msg: str):
-        append_to_chat("system", msg)
+        _ui(lambda m=msg: append_to_chat("system", m))
 
     def run():
         try:
@@ -716,15 +734,11 @@ def run_world_agent():
                 f"  NPCs simulados: {result['npcs_simulados']}\n\n"
                 f"{result['narrativa']}"
             )
-            append_to_chat("system", summary)
-            refresh_estado_panel()
+            _ui(lambda s=summary: (append_to_chat("system", s), refresh_estado_panel()))
         except Exception as e:
-            append_to_chat("system", f"Error en World Agent: {e}")
+            _ui(lambda err=str(e): append_to_chat("system", f"Error en World Agent: {err}"))
         finally:
-            try:
-                dpg.enable_item("world_advance_btn")
-            except Exception:
-                pass
+            _ui(lambda: dpg.enable_item("world_advance_btn"))
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -749,16 +763,7 @@ def load_pdf_callback(sender, app_data):
         state["manual_names"] = [name]
         state["system_name"] = system_name
         state["system_slug"] = system_slug
-
-        dpg.set_value("manual_status", f"✓ {name}")
-        dpg.set_value("system_detected", system_name)
-        try:
-            dpg.enable_item("build_vault_btn")
-            dpg.enable_item("add_pdf_btn")
-        except Exception:
-            pass
-
-        append_to_chat("system", f"Manual cargado: {name}\nSistema: {system_name}")
+        state["phase"] = "char_creation"
 
         analysis_prompt = (
             f"Acabo de cargar el manual '{name}'. "
@@ -769,8 +774,19 @@ def load_pdf_callback(sender, app_data):
             f"Cuando elija, guiame por las secciones de la hoja. "
             f"Incluí datos del personaje en bloques ```json``` para actualizar la hoja."
         )
-        state["phase"] = "char_creation"
-        send_message(analysis_prompt)
+
+        def _update(sn=system_name, n=name, ap=analysis_prompt):
+            dpg.set_value("manual_status", f"✓ {n}")
+            dpg.set_value("system_detected", sn)
+            try:
+                dpg.enable_item("build_vault_btn")
+                dpg.enable_item("add_pdf_btn")
+            except Exception:
+                pass
+            append_to_chat("system", f"Manual cargado: {n}\nSistema: {sn}")
+            send_message(ap)
+
+        _ui(_update)
 
     threading.Thread(target=process, daemon=True).start()
 
@@ -791,7 +807,7 @@ def build_vault_callback():
         pass
 
     def on_progress(msg: str):
-        append_to_chat("system", msg)
+        _ui(lambda m=msg: append_to_chat("system", m))
 
     def run():
         try:
@@ -819,15 +835,11 @@ def build_vault_callback():
                 f"  Frentes: {result['frentes']}\n"
                 f"Podés abrir la carpeta vault/ en Obsidian."
             )
-            append_to_chat("system", summary)
-            refresh_estado_panel()
+            _ui(lambda s=summary: (append_to_chat("system", s), refresh_estado_panel()))
         except Exception as e:
-            append_to_chat("system", f"Error construyendo vault: {e}")
+            _ui(lambda err=str(e): append_to_chat("system", f"Error construyendo vault: {err}"))
         finally:
-            try:
-                dpg.enable_item("build_vault_btn")
-            except Exception:
-                pass
+            _ui(lambda: dpg.enable_item("build_vault_btn"))
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -1060,7 +1072,7 @@ def build_gui():
 
                     with dpg.tab(label="Dados"):
                         add_spacer(6)
-                        build_dice_panel(dpg.last_item().__class__)
+                        build_dice_panel(dpg.last_item())
 
             dpg.add_spacer(width=6)
 
@@ -1265,6 +1277,11 @@ def main():
     build_gui()
 
     while dpg.is_dearpygui_running():
+        try:
+            while True:
+                _ui_queue.get_nowait()()
+        except _queue_mod.Empty:
+            pass
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
