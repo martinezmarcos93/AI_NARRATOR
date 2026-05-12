@@ -45,25 +45,26 @@ except Exception as _agent_err:
 # ─────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434"
 APP_TITLE  = "AI NARRATOR"
-WIN_W, WIN_H = 1400, 900
 
-# Paleta: tinta oscura + pergamino + rojo sangre + oro
-C_BG          = (12, 10, 8, 255)
-C_PANEL       = (22, 18, 14, 255)
-C_SURFACE     = (32, 26, 20, 255)
-C_BORDER      = (80, 55, 30, 255)
-C_GOLD        = (180, 140, 60, 255)
-C_GOLD_DIM    = (120, 90, 35, 255)
-C_RED         = (160, 35, 35, 255)
-C_RED_BRIGHT  = (200, 50, 40, 255)
-C_TEXT        = (220, 205, 180, 255)
-C_TEXT_DIM    = (140, 120, 90, 255)
-C_TEXT_DARK   = (80, 65, 45, 255)
-C_INPUT_BG    = (18, 14, 10, 255)
-C_HOVER       = (45, 35, 22, 255)
-C_ACTIVE      = (60, 45, 25, 255)
-C_SUCCESS     = (60, 130, 70, 255)
-C_DICE_BG     = (28, 22, 15, 255)
+# Paleta: acero oscuro + azul metalico + plateado
+C_BG          = (8,  12, 18,  255)
+C_PANEL       = (13, 18, 28,  255)
+C_SURFACE     = (20, 28, 42,  255)
+C_BORDER      = (38, 62, 98,  255)
+C_GOLD        = (95, 150, 210, 255)   # azul acero (acento principal)
+C_GOLD_DIM    = (55, 95,  155, 255)   # acero atenuado
+C_RED         = (150, 40, 50,  255)
+C_RED_BRIGHT  = (195, 60, 68,  255)
+C_TEXT        = (195, 215, 235, 255)
+C_TEXT_DIM    = (108, 132, 158, 255)
+C_TEXT_DARK   = (52,  72,  98,  255)
+C_INPUT_BG    = (10,  14,  22,  255)
+C_HOVER       = (26,  44,  68,  255)
+C_ACTIVE      = (38,  62,  92,  255)
+C_SUCCESS     = (45,  140, 88,  255)
+C_DICE_BG     = (16,  24,  38,  255)
+
+_CHAT_WRAP_W = 820   # actualizado en build_gui con el ancho real
 
 _SYSTEM_PROMPT_LEGACY = """
 Eres un Narrador de juegos de rol de élite. Experto en Mundo de Tinieblas, D&D, Pathfinder, Call of Cthulhu y sistemas PbtA.
@@ -125,6 +126,43 @@ _ui_queue: "_queue_mod.Queue" = _queue_mod.Queue()
 def _ui(fn):
     """Encola una función para ejecutarse en el hilo principal de DPG."""
     _ui_queue.put(fn)
+
+# ─────────────────────────────────────────────
+#  SISTEMA DE PROGRESO EN SEGUNDO PLANO
+# ─────────────────────────────────────────────
+_proc_count = 0
+
+def _proc_start(title: str):
+    global _proc_count
+    _proc_count = 0
+    try:
+        dpg.set_value("proc_bar_text", title)
+        dpg.set_value("proc_detail_header", title)
+        dpg.delete_item("proc_log_area", children_only=True)
+        dpg.configure_item("proc_bar_group", show=True)
+        dpg.configure_item("proc_detail_window", show=True)
+    except Exception:
+        pass
+
+def _proc_step(msg: str):
+    global _proc_count
+    _proc_count += 1
+    try:
+        dpg.set_value("proc_bar_text", f"{msg}")
+        dpg.add_text(f"  {msg}", parent="proc_log_area",
+                     color=list(C_TEXT_DIM), wrap=420)
+        dpg.set_y_scroll("proc_log_area",
+                         dpg.get_y_scroll_max("proc_log_area"))
+    except Exception:
+        pass
+
+def _proc_done(summary: str):
+    try:
+        dpg.configure_item("proc_bar_group", show=False)
+        dpg.configure_item("proc_detail_window", show=False)
+    except Exception:
+        pass
+    append_to_chat("system", summary)
 
 # ─────────────────────────────────────────────
 #  OLLAMA API
@@ -301,20 +339,20 @@ _is_streaming = False
 
 def append_to_chat(role: str, text: str):
     if role == "user":
-        color = list(C_GOLD)
-        prefix = "▶  Vos"
+        label_color = list(C_GOLD)
+        prefix = "[Vos]"
     elif role == "assistant":
-        color = list(C_TEXT)
-        prefix = "◈  Narrador"
+        label_color = list(C_GOLD)
+        prefix = "[Narrador]"
     else:
-        color = list(C_TEXT_DIM)
-        prefix = "◦  Sistema"
+        label_color = list(C_TEXT_DIM)
+        prefix = "[Sistema]"
 
     with dpg.group(parent="chat_scroll"):
-        dpg.add_text(prefix, color=color)
-        dpg.add_text(text, color=list(C_TEXT), wrap=780)
+        dpg.add_text(prefix, color=label_color)
+        dpg.add_text(text, color=list(C_TEXT), wrap=_CHAT_WRAP_W)
         dpg.add_separator()
-        add_spacer(4)
+        dpg.add_spacer(height=4, parent="chat_scroll")
 
     dpg.set_y_scroll("chat_scroll", dpg.get_y_scroll_max("chat_scroll"))
 
@@ -422,7 +460,7 @@ def send_message(user_text: str = None):
     _streaming_token = ""
     try:
         dpg.configure_item("streaming_group", show=True)
-        dpg.set_value("streaming_label", "▍")
+        dpg.set_value("streaming_label", "...")
     except Exception:
         pass
 
@@ -711,9 +749,10 @@ def run_world_agent():
         dpg.disable_item("world_advance_btn")
     except Exception:
         pass
+    _ui(lambda: _proc_start("Avanzando el mundo entre sesiones..."))
 
     def on_progress(msg: str):
-        _ui(lambda m=msg: append_to_chat("system", m))
+        _ui(lambda m=msg: _proc_step(m))
 
     def run():
         try:
@@ -729,14 +768,13 @@ def run_world_agent():
                 on_progress=on_progress,
             )
             summary = (
-                f"Mundo avanzado:\n"
-                f"  Frentes avanzados: {result['frentes_avanzados']}\n"
-                f"  NPCs simulados: {result['npcs_simulados']}\n\n"
+                f"Mundo avanzado: {result['frentes_avanzados']} frentes, "
+                f"{result['npcs_simulados']} NPCs simulados.\n\n"
                 f"{result['narrativa']}"
             )
-            _ui(lambda s=summary: (append_to_chat("system", s), refresh_estado_panel()))
+            _ui(lambda s=summary: (_proc_done(s), refresh_estado_panel()))
         except Exception as e:
-            _ui(lambda err=str(e): append_to_chat("system", f"Error en World Agent: {err}"))
+            _ui(lambda err=str(e): _proc_done(f"Error en World Agent: {err}"))
         finally:
             _ui(lambda: dpg.enable_item("world_advance_btn"))
 
@@ -805,9 +843,10 @@ def build_vault_callback():
         dpg.disable_item("build_vault_btn")
     except Exception:
         pass
+    _ui(lambda: _proc_start("Construyendo vault del sistema..."))
 
     def on_progress(msg: str):
-        _ui(lambda m=msg: append_to_chat("system", m))
+        _ui(lambda m=msg: _proc_step(m))
 
     def run():
         try:
@@ -828,16 +867,15 @@ def build_vault_callback():
                 on_progress=on_progress,
             )
             summary = (
-                f"Vault construido:\n"
-                f"  NPCs: {result['npcs']}\n"
-                f"  Locaciones: {result['locaciones']}\n"
-                f"  Facciones: {result['facciones']}\n"
-                f"  Frentes: {result['frentes']}\n"
-                f"Podés abrir la carpeta vault/ en Obsidian."
+                f"Vault construido: {result['npcs']} NPCs, "
+                f"{result['locaciones']} locaciones, "
+                f"{result['facciones']} facciones, "
+                f"{result['frentes']} frentes.\n"
+                f"Abri vault/ en Obsidian para explorar."
             )
-            _ui(lambda s=summary: (append_to_chat("system", s), refresh_estado_panel()))
+            _ui(lambda s=summary: (_proc_done(s), refresh_estado_panel()))
         except Exception as e:
-            _ui(lambda err=str(e): append_to_chat("system", f"Error construyendo vault: {err}"))
+            _ui(lambda err=str(e): _proc_done(f"Error construyendo vault: {err}"))
         finally:
             _ui(lambda: dpg.enable_item("build_vault_btn"))
 
@@ -908,22 +946,22 @@ def apply_theme():
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, C_RED)
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_RED_BRIGHT)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (220, 60, 45, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (240, 220, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (210, 70, 78, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (230, 230, 240, 255))
     state["dice_theme"] = dice_theme
 
     with dpg.theme() as send_theme:
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, C_GOLD_DIM)
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_GOLD)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (200, 160, 70, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (120, 175, 230, 255))
             dpg.add_theme_color(dpg.mvThemeCol_Text, C_BG)
     state["send_theme"] = send_theme
 
     with dpg.theme() as action_theme:
         with dpg.theme_component(dpg.mvButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (35, 28, 18, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (55, 43, 25, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (18, 26, 40, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, C_HOVER)
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, C_ACTIVE)
             dpg.add_theme_color(dpg.mvThemeCol_Text, C_GOLD)
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 2)
@@ -933,296 +971,259 @@ def apply_theme():
 #  GUI — MAIN WINDOW
 # ─────────────────────────────────────────────
 def build_gui():
+    global _CHAT_WRAP_W
     dpg.create_context()
-    dpg.create_viewport(
-        title=APP_TITLE,
-        width=WIN_W,
-        height=WIN_H,
-        min_width=900,
-        min_height=600,
-    )
-
+    dpg.create_viewport(title=APP_TITLE, min_width=900, min_height=600, resizable=True)
     apply_theme()
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.maximize_viewport()
+    dpg.render_dearpygui_frame()   # deja que el maximize tome efecto
 
+    W = dpg.get_viewport_client_width()
+    H = dpg.get_viewport_client_height()
+
+    COL_L   = 195
+    COL_R   = 190
+    CHAT_W  = W - COL_L - COL_R - 20
+    _CHAT_WRAP_W = CHAT_W - 32
+    PANEL_H = H - 68
+
+    # ── File dialogs ──────────────────────────────────────────
     dpg.add_file_dialog(
-        tag="pdf_dialog",
-        directory_selector=False,
-        show=False,
-        callback=load_pdf_callback,
-        width=700,
-        height=450,
-        modal=True,
-        default_filename="",
+        tag="pdf_dialog", directory_selector=False, show=False,
+        callback=load_pdf_callback, width=700, height=450, modal=True,
     )
     dpg.add_file_extension(".pdf", parent="pdf_dialog", color=list(C_GOLD))
     dpg.add_file_extension(".PDF", parent="pdf_dialog", color=list(C_GOLD))
 
     dpg.add_file_dialog(
-        tag="pdf_supplement_dialog",
-        directory_selector=False,
-        show=False,
-        callback=add_supplement_callback,
-        width=700,
-        height=450,
-        modal=True,
-        default_filename="",
+        tag="pdf_supplement_dialog", directory_selector=False, show=False,
+        callback=add_supplement_callback, width=700, height=450, modal=True,
     )
     dpg.add_file_extension(".pdf", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
     dpg.add_file_extension(".PDF", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
 
+    # ── Ventana de progreso flotante ──────────────────────────
+    with dpg.window(tag="proc_detail_window",
+                    label="Proceso en segundo plano",
+                    show=False, width=480, height=370, no_close=False,
+                    pos=[W // 2 - 240, H // 2 - 185]):
+        dpg.add_text("", tag="proc_detail_header", color=list(C_GOLD))
+        dpg.add_separator()
+        dpg.add_spacer(height=4)
+        dpg.add_text(
+            "Este proceso corre en segundo plano.\n"
+            "Podes seguir jugando mientras tanto.",
+            color=list(C_TEXT_DIM), wrap=440,
+        )
+        dpg.add_spacer(height=6)
+        with dpg.child_window(tag="proc_log_area", height=220, border=True,
+                              horizontal_scrollbar=False):
+            dpg.add_text("En espera...", color=list(C_TEXT_DARK))
+        dpg.add_spacer(height=6)
+        dpg.add_button(label="Ocultar", width=-1,
+                       callback=lambda: dpg.configure_item("proc_detail_window", show=False))
+
+    # ── Ventana principal ─────────────────────────────────────
     with dpg.window(tag="main_window", no_title_bar=True, no_move=True,
                     no_resize=True, no_scrollbar=True):
 
-        # ─── HEADER BAR ───────────────────────
+        # ── HEADER ───────────────────────────────────────────
         with dpg.group(horizontal=True):
-            dpg.add_text("◈  AI NARRATOR", color=list(C_GOLD))
-            dpg.add_spacer(width=20)
-
+            dpg.add_text("AI NARRATOR", color=list(C_GOLD))
+            dpg.add_spacer(width=10)
             dpg.add_text("Modelo:", color=list(C_TEXT_DIM))
             models = get_models()
             state["models"] = models
             if not models:
                 models = ["(sin Ollama)"]
-            dpg.add_combo(
-                tag="model_selector",
-                items=models,
-                default_value=models[0],
-                width=200,
-                callback=lambda s, a: state.update({"model": a})
-            )
-
-            dpg.add_spacer(width=15)
+            dpg.add_combo(tag="model_selector", items=models,
+                          default_value=models[0], width=170,
+                          callback=lambda s, a: state.update({"model": a}))
+            dpg.add_spacer(width=8)
             dpg.add_text("Manual:", color=list(C_TEXT_DIM))
             dpg.add_text("(ninguno)", tag="manual_status", color=list(C_TEXT_DIM))
-            dpg.add_button(
-                label="  Cargar PDF  ",
-                callback=lambda: dpg.show_item("pdf_dialog"),
-            )
-            dpg.add_button(
-                tag="add_pdf_btn",
-                label="+ Suplemento",
-                callback=lambda: dpg.show_item("pdf_supplement_dialog"),
-                enabled=False,
-            )
-
-            dpg.add_spacer(width=15)
+            dpg.add_button(label="Cargar PDF",
+                           callback=lambda: dpg.show_item("pdf_dialog"))
+            dpg.add_button(tag="add_pdf_btn", label="+ Supl.",
+                           callback=lambda: dpg.show_item("pdf_supplement_dialog"),
+                           enabled=False)
+            dpg.add_spacer(width=8)
             dpg.add_text("Sistema:", color=list(C_TEXT_DIM))
-            dpg.add_text("—", tag="system_detected", color=list(C_TEXT_DIM))
-
-            dpg.add_spacer(width=15)
-            dpg.add_button(
-                tag="build_vault_btn",
-                label="Construir Vault",
-                callback=build_vault_callback,
-                enabled=False,
-            )
-
-            dpg.add_spacer(width=15)
-            dpg.add_button(
-                label="Guardar sesión",
-                callback=lambda: (save_session(),
-                                  append_to_chat("system", "Sesión guardada."))
-            )
+            dpg.add_text("--", tag="system_detected", color=list(C_TEXT_DIM))
+            dpg.add_spacer(width=8)
+            dpg.add_button(tag="build_vault_btn", label="Vault",
+                           callback=build_vault_callback, enabled=False)
+            dpg.add_button(label="Guardar",
+                           callback=lambda: (save_session(),
+                                             append_to_chat("system", "Sesion guardada.")))
 
         dpg.add_separator()
-        add_spacer(4)
+        dpg.add_spacer(height=2)
 
-        # ─── LAYOUT PRINCIPAL (3 columnas) ────
+        # ── LAYOUT 3 COLUMNAS ────────────────────────────────
         with dpg.group(horizontal=True):
 
-            # ══ COLUMNA IZQUIERDA: personaje + dados ══
-            with dpg.child_window(width=185, height=WIN_H - 80,
-                                  border=True, tag="left_panel"):
-                add_spacer(4)
-
+            # ══ IZQUIERDA: personaje + dados ══
+            with dpg.child_window(width=COL_L, height=PANEL_H, border=True,
+                                  tag="left_panel"):
+                dpg.add_spacer(height=4)
                 with dpg.tab_bar():
 
                     with dpg.tab(label="Personaje"):
-                        add_spacer(6)
+                        dpg.add_spacer(height=4)
                         with dpg.child_window(tag="char_content",
-                                              height=WIN_H - 370,
+                                              height=PANEL_H - 230,
                                               border=False):
-                            dim_text("Sin personaje creado.")
-                            add_spacer(4)
-                            dim_text("Cargá un manual\ny pedile al narrador\nque te guíe.")
-
-                        add_spacer(6)
-                        dpg.add_button(
-                            label="Actualizar hoja",
-                            width=-1,
-                            callback=refresh_character_panel
-                        )
-                        add_spacer(6)
+                            dim_text("Sin personaje.")
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(label="Actualizar hoja", width=-1,
+                                       callback=refresh_character_panel)
                         dpg.add_separator()
-                        add_spacer(4)
+                        dpg.add_spacer(height=3)
                         dim_text("Editar (JSON):")
                         dpg.add_input_text(
-                            tag="char_json_editor",
-                            multiline=True,
-                            width=-1,
-                            height=110,
+                            tag="char_json_editor", multiline=True,
+                            width=-1, height=100,
                             hint='{"nombre": "...", ...}',
                         )
-                        add_spacer(4)
-                        dpg.add_button(
-                            label="Aplicar cambios",
-                            width=-1,
-                            callback=apply_character_edits,
-                        )
+                        dpg.add_spacer(height=3)
+                        dpg.add_button(label="Aplicar cambios", width=-1,
+                                       callback=apply_character_edits)
 
                     with dpg.tab(label="Dados"):
-                        add_spacer(6)
+                        dpg.add_spacer(height=4)
                         build_dice_panel(dpg.last_item())
 
-            dpg.add_spacer(width=6)
+            dpg.add_spacer(width=4)
 
-            # ══ COLUMNA CENTRAL: chat ══
-            with dpg.child_window(width=WIN_W - 185 - 185 - 30,
-                                  height=WIN_H - 80, border=True):
+            # ══ CENTRO: chat ══
+            with dpg.child_window(width=CHAT_W, height=PANEL_H, border=True):
 
+                # Quick actions — una sola fila
+                btn_w = max(80, (CHAT_W - 12) // len(QUICK_ACTIONS))
                 with dpg.group(horizontal=True):
-                    for label, msg in QUICK_ACTIONS[:3]:
+                    for lbl, msg in QUICK_ACTIONS:
                         btn = dpg.add_button(
-                            label=label,
-                            width=120,
-                            callback=lambda s, a, m=msg: send_message(m)
+                            label=lbl, width=btn_w,
+                            callback=lambda s, a, m=msg: send_message(m),
                         )
                         dpg.bind_item_theme(btn, state["action_theme"])
-                add_spacer(4)
-                with dpg.group(horizontal=True):
-                    for label, msg in QUICK_ACTIONS[3:]:
-                        btn = dpg.add_button(
-                            label=label,
-                            width=120,
-                            callback=lambda s, a, m=msg: send_message(m)
-                        )
-                        dpg.bind_item_theme(btn, state["action_theme"])
-
                 dpg.add_separator()
-                add_spacer(4)
 
-                with dpg.child_window(
-                    tag="chat_scroll",
-                    height=WIN_H - 230,
-                    border=False,
-                    horizontal_scrollbar=False,
-                ):
-                    dpg.add_text(
-                        "Bienvenido al AI Narrator.\n"
-                        "Cargá un manual PDF para comenzar la creación de personaje,\n"
-                        "o escribí directamente para iniciar una aventura.",
-                        color=list(C_TEXT_DIM),
-                        wrap=780
-                    )
+                # Barra de progreso (oculta hasta que haya proceso activo)
+                with dpg.group(tag="proc_bar_group", show=False):
+                    dpg.add_spacer(height=2)
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("[...]", color=list(C_GOLD))
+                        dpg.add_spacer(width=4)
+                        dpg.add_text("", tag="proc_bar_text", color=list(C_TEXT_DIM))
+                        dpg.add_spacer(width=6)
+                        dpg.add_button(
+                            label="Detalles",
+                            callback=lambda: dpg.configure_item(
+                                "proc_detail_window", show=True),
+                        )
+                        dpg.add_button(
+                            label=" x ",
+                            callback=lambda: dpg.configure_item(
+                                "proc_bar_group", show=False),
+                        )
+                    dpg.add_spacer(height=2)
                     dpg.add_separator()
 
+                # Scroll de chat
+                CHAT_H = PANEL_H - 100
+                with dpg.child_window(tag="chat_scroll", height=CHAT_H,
+                                      border=False, horizontal_scrollbar=False):
+                    dpg.add_text(
+                        "Bienvenido al AI Narrator.\n"
+                        "Carga un manual PDF para comenzar la creacion de personaje,\n"
+                        "o escribi directamente para iniciar una aventura.",
+                        color=list(C_TEXT_DIM), wrap=_CHAT_WRAP_W,
+                    )
+                    dpg.add_separator()
                     with dpg.group(tag="streaming_group", show=False):
-                        dpg.add_text("◈  Narrador", color=list(C_GOLD))
+                        dpg.add_text("[Narrador]", color=list(C_GOLD))
                         dpg.add_text("", tag="streaming_label",
-                                     color=list(C_TEXT), wrap=780)
+                                     color=list(C_TEXT), wrap=_CHAT_WRAP_W)
                         dpg.add_separator()
 
-                add_spacer(4)
+                dpg.add_spacer(height=3)
 
+                # Input
                 with dpg.group(horizontal=True):
                     dpg.add_input_text(
                         tag="user_input",
-                        hint="Escribí tu acción o pregunta...",
-                        width=-85,
-                        height=50,
+                        hint="Escribe tu accion o pregunta...",
+                        width=CHAT_W - 92,
+                        height=46,
                         multiline=False,
                         on_enter=True,
-                        callback=lambda s, a: send_message()
+                        callback=lambda s, a: send_message(),
                     )
                     send_btn = dpg.add_button(
-                        tag="send_btn",
-                        label="Enviar",
-                        width=80,
-                        height=50,
-                        callback=send_message
+                        tag="send_btn", label="Enviar",
+                        width=84, height=46,
+                        callback=send_message,
                     )
                     dpg.bind_item_theme(send_btn, state["send_theme"])
 
-            dpg.add_spacer(width=6)
+            dpg.add_spacer(width=4)
 
-            # ══ COLUMNA DERECHA: log + estado (tabs) ══
-            with dpg.child_window(width=180, height=WIN_H - 80, border=True):
-                add_spacer(4)
-
+            # ══ DERECHA: log + estado ══
+            with dpg.child_window(width=COL_R, height=PANEL_H, border=True):
+                dpg.add_spacer(height=4)
                 with dpg.tab_bar():
 
-                    # Tab Log
                     with dpg.tab(label="Log"):
-                        add_spacer(6)
+                        dpg.add_spacer(height=4)
                         dpg.add_separator()
-                        add_spacer(4)
+                        dpg.add_spacer(height=3)
                         with dpg.child_window(tag="log_content",
-                                              height=WIN_H - 230,
+                                              height=PANEL_H - 160,
                                               border=False):
-                            dim_text("Sin eventos aún.")
-
-                        add_spacer(6)
+                            dim_text("Sin eventos.")
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(label="Exportar log", width=-1,
+                                       callback=export_session_log)
+                        dpg.add_spacer(height=3)
                         dpg.add_button(
-                            label="Exportar log",
-                            width=-1,
-                            callback=export_session_log,
+                            label="Limpiar log", width=-1,
+                            callback=lambda: (state["session_log"].clear(),
+                                             refresh_log()),
                         )
-                        add_spacer(4)
+                        dpg.add_spacer(height=3)
                         dpg.add_button(
-                            label="Limpiar log",
-                            width=-1,
+                            label="Nueva sesion", width=-1,
                             callback=lambda: (
-                                state["session_log"].clear(),
-                                refresh_log()
-                            )
-                        )
-                        add_spacer(4)
-                        dpg.add_button(
-                            label="Nueva sesión",
-                            width=-1,
-                            callback=lambda: (
-                                state.update({
-                                    "messages": [],
-                                    "character": {},
-                                    "session_log": [],
-                                    "phase": "idle",
-                                    "last_dice_result": None,
-                                }),
+                                state.update({"messages": [], "character": {},
+                                              "session_log": [], "phase": "idle",
+                                              "last_dice_result": None}),
                                 dpg.delete_item("chat_scroll", children_only=True),
                                 refresh_character_panel(),
                                 refresh_log(),
-                            )
+                            ),
                         )
 
-                    # Tab Estado — Sprint 3
                     with dpg.tab(label="Estado"):
-                        add_spacer(6)
+                        dpg.add_spacer(height=4)
                         dpg.add_separator()
-                        add_spacer(4)
+                        dpg.add_spacer(height=3)
                         with dpg.child_window(tag="estado_content",
-                                              height=WIN_H - 230,
+                                              height=PANEL_H - 160,
                                               border=False):
                             dim_text("Cargando estado...")
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(label="Actualizar", width=-1,
+                                       callback=refresh_estado_panel)
+                        dpg.add_spacer(height=3)
+                        dpg.add_button(tag="world_advance_btn",
+                                       label="Avanzar Mundo", width=-1,
+                                       callback=run_world_agent)
 
-                        add_spacer(6)
-                        dpg.add_button(
-                            label="Actualizar",
-                            width=-1,
-                            callback=refresh_estado_panel,
-                        )
-                        add_spacer(4)
-                        dpg.add_button(
-                            tag="world_advance_btn",
-                            label="Avanzar Mundo",
-                            width=-1,
-                            callback=run_world_agent,
-                        )
-
-    dpg.setup_dearpygui()
     dpg.set_primary_window("main_window", True)
-    dpg.show_viewport()
-
-    # Poblar panel de estado inicial
     refresh_estado_panel()
 
 # ─────────────────────────────────────────────
