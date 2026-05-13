@@ -68,6 +68,8 @@ class PromptBuilder:
         active_npcs: str = "",
         active_fronts: str = "",
         clocks_summary: str = "",
+        pacing_instruction: str = "",
+        master_move: dict = None,
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
@@ -100,6 +102,13 @@ class PromptBuilder:
 
         if active_npcs:
             sections.append(f"NPCS EN EL MUNDO:\n{active_npcs}")
+
+        if pacing_instruction:
+            sections.append(f"RITMO Y TONO:\n{pacing_instruction}")
+
+        if master_move:
+            move_text = f"{master_move.get('name', '')}: {master_move.get('instruction', '')}"
+            sections.append(f"MOVIMIENTO DEL MÁSTER SUGERIDO:\n{move_text}")
 
         if vault_context:
             sections.append(f"CONTEXTO RELEVANTE DEL VAULT:\n{vault_context}")

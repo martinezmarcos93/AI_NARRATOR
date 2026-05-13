@@ -173,8 +173,7 @@ class PacingToneAgent:
         # Regla 1: Si hay combate o persecución en los últimos 3 eventos -> ralentizar después de un tiempo
         recent_types = [e['type'] for e in list(self.event_history)[-3:]]
         if any(t in ['combate', 'persecucion', 'horror'] for t in recent_types):
-            if self.pacing_duration > self.tools_config.get('pacing_rules', {})
-                                         .get('max_tension_minutes', 15):
+            if self.pacing_duration > self.tools_config.get('pacing_rules', {}).get('max_tension_minutes', 15):
                 return "ralentizado"
             else:
                 return "acelerado"
@@ -182,8 +181,7 @@ class PacingToneAgent:
         # Regla 2: Si los últimos eventos son diálogo/descanso -> acelerar después de un tiempo
         if all(t in ['dialogo', 'descanso', 'exploracion'] for t in recent_types):
             rest_duration = self.pacing_duration
-            if rest_duration > self.tools_config.get('pacing_rules', {})
-                                        .get('rest_threshold', 5):
+            if rest_duration > self.tools_config.get('pacing_rules', {}).get('rest_threshold', 5):
                 return "acelerado"
             else:
                 return "neutral"

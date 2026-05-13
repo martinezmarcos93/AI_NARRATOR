@@ -8,6 +8,9 @@ from pathlib import Path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
 from narrator.core.state_manager import StateManager
+from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent
+
+_THEORY_ENGINE_PATH = Path(__file__).parent.parent / "core" / "theory_engine"
 
 
 class Orchestrator:
@@ -23,12 +26,38 @@ class Orchestrator:
         self.state = StateManager(state_path=state_path)
         self.state.load()
 
+        self.master_moves = MasterMoveEngine(config_path=_THEORY_ENGINE_PATH)
+        self.pacing_agent = PacingToneAgent(config_path=_THEORY_ENGINE_PATH)
+
     def _load_config(self, path: str) -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except Exception:
             return {}
+
+    # ── Theory engine ─────────────────────────────────────────
+    def record_event(self, event_type: str, intensity: int = 1) -> None:
+        """Registra un evento de sesión (llamar desde app.py tras cada turno)."""
+        self.pacing_agent.update_event_history(event_type, intensity)
+
+    def _build_move_context(self, app_state: dict, active_fronts: str, active_npcs: str) -> dict:
+        relojes = self.state.data.get("relojes", {})
+        relojes_por_estallar = sum(
+            1 for c in relojes.values()
+            if c.get("llenos", 0) >= c.get("segmentos", 6) - 1
+        )
+        return {
+            "tirada_resultado": app_state.get("last_dice_result"),
+            "tiempo_sin_accion": 0,
+            "frente_activo": bool(active_fronts),
+            "jugadores_bloqueados": app_state.get("jugadores_bloqueados", False),
+            "peligro_inminente": relojes_por_estallar > 0,
+            "ultimo_evento": app_state.get("ultimo_evento", "dialogo"),
+            "sesion_tiempo_total": self.state.get_session_number(),
+            "relojes_por_estallar": relojes_por_estallar,
+            "pnj_en_escena": bool(active_npcs),
+        }
 
     # ── Sistema activo ────────────────────────────────────────
     def get_active_system(self, app_state: dict) -> str:
@@ -69,6 +98,10 @@ class Orchestrator:
         active_fronts = self.retriever.get_active_fronts_summary()
         clocks = self.state.get_clocks_summary()
 
+        pacing_result = self.pacing_agent.tick()
+        move_ctx = self._build_move_context(app_state, active_fronts, active_npcs)
+        master_move = self.master_moves.select_move(move_ctx)
+
         return self.builder.build_narrator_prompt(
             system_slug=system_slug,
             vault_context=vault_ctx,
@@ -78,6 +111,8 @@ class Orchestrator:
             active_npcs=active_npcs,
             active_fronts=active_fronts,
             clocks_summary=clocks,
+            pacing_instruction=pacing_result["instruction"],
+            master_move=master_move,
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

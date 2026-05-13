@@ -5,6 +5,10 @@ vault/
 # Estado de campaña (datos de partida en curso)
 estado_campana.yaml
 
+# Estado persistente de agentes de teoría (generado en tiempo de ejecución)
+world_state.json
+investigation_state.json
+
 # Sesión guardada de narrator.py
 ~/.ai_narrator/
 
@@ -22,6 +26,7 @@ logs/
 # Archivos del editor / herramientas
 .claude/
 *.docx
+temp/
 
 # OS
 .DS_Store
