@@ -693,8 +693,8 @@ def add_supplement_callback(sender, app_data):
 # ─────────────────────────────────────────────
 #  EXPORTAR LOG DE SESIÓN
 # ─────────────────────────────────────────────
-def export_session_log():
-    """Exporta el historial de chat completo como Markdown."""
+def export_session_log(silent: bool = False) -> str:
+    """Exporta el historial de chat completo como Markdown. Devuelve la ruta."""
     session_n = state.get("session_number", 1)
     date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = f"Sesion_{session_n:02d}_export_{date_str}.md"
@@ -724,9 +724,21 @@ def export_session_log():
         lines += ["---", "", "## Log de Eventos", ""]
         lines += [f"- {e}" for e in state["session_log"]]
 
+    if state.get("character"):
+        lines += [
+            "", "---", "", "## Hoja de Personaje (snapshot)", "",
+            "```json",
+            json.dumps(state["character"], ensure_ascii=False, indent=2),
+            "```",
+        ]
+
+    if _AGENT_MODE and _orchestrator:
+        clocks = _orchestrator.state.get_clocks_summary()
+        if clocks:
+            lines += ["", "---", "", "## Estado de Frentes", "", "```", clocks, "```"]
+
     export_path.write_text("\n".join(lines), encoding="utf-8")
 
-    # También copiar al vault si existe
     if _AGENT_MODE and _orchestrator:
         config = _orchestrator.config
         vault_path = Path(config.get("vault", {}).get("path", "vault"))
@@ -735,7 +747,9 @@ def export_session_log():
             import shutil
             shutil.copy(export_path, sessions_dir / filename)
 
-    append_to_chat("system", f"Log exportado: {export_path}")
+    if not silent:
+        append_to_chat("system", f"Log exportado: {export_path}")
+    return str(export_path)
 
 
 # ─────────────────────────────────────────────
@@ -796,6 +810,9 @@ def run_world_agent():
                 session_number=state.get("session_number", 1),
                 on_progress=on_progress,
             )
+            for adv in result.get("advances", []):
+                _orchestrator.state.advance_front_clock(adv.get("nombre", ""), adv.get("ticks", 1))
+                _orchestrator.world_sim.advance_front(adv.get("nombre", ""), adv.get("ticks", 1))
             summary = (
                 f"Mundo avanzado: {result['frentes_avanzados']} frentes, "
                 f"{result['npcs_simulados']} NPCs simulados.\n\n"
@@ -1227,12 +1244,15 @@ def build_gui():
                         dpg.add_button(
                             label="Nueva sesion", width=-1,
                             callback=lambda: (
+                                export_session_log(silent=True),
                                 state.update({"messages": [], "character": {},
                                               "session_log": [], "phase": "idle",
-                                              "last_dice_result": None}),
+                                              "last_dice_result": None,
+                                              "session_number": state.get("session_number", 1) + 1}),
                                 dpg.delete_item("chat_scroll", children_only=True),
                                 refresh_character_panel(),
                                 refresh_log(),
+                                refresh_estado_panel(),
                             ),
                         )
 

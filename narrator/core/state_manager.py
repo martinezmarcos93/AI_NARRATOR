@@ -154,6 +154,24 @@ class StateManager:
     def get_session_number(self) -> int:
         return self.data["meta"].get("sesion_actual", 0)
 
+    # ── Frentes (gestión programática) ───────────────────────
+    def add_front(self, name: str, description: str = "", max_stage: int = 6) -> None:
+        """Registra un frente como reloj si no existe todavía."""
+        if name not in self.data["relojes"]:
+            self.data["relojes"][name] = {
+                "segmentos": max_stage,
+                "llenos": 0,
+                "descripcion": description,
+            }
+            self.save()
+
+    def advance_front_clock(self, name: str, ticks: int = 1) -> None:
+        """Avanza el reloj de un frente registrado."""
+        clock = self.data["relojes"].get(name)
+        if clock:
+            clock["llenos"] = min(clock["llenos"] + ticks, clock["segmentos"])
+            self.save()
+
     # ── Downtime entre sesiones ───────────────────────────────
     def add_downtime_action(self, actor: str, action: str):
         self.data["downtime"].setdefault("pendiente", []).append({

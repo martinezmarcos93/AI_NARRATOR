@@ -8,7 +8,7 @@ from pathlib import Path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
 from narrator.core.state_manager import StateManager
-from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent
+from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent, WorldSimulationEngine
 
 _THEORY_ENGINE_PATH = Path(__file__).parent.parent / "core" / "theory_engine"
 
@@ -28,6 +28,10 @@ class Orchestrator:
 
         self.master_moves = MasterMoveEngine(config_path=_THEORY_ENGINE_PATH)
         self.pacing_agent = PacingToneAgent(config_path=_THEORY_ENGINE_PATH)
+        self.world_sim = WorldSimulationEngine(
+            config_path=_THEORY_ENGINE_PATH,
+            vault_path=Path(vault_path),
+        )
 
     def _load_config(self, path: str) -> dict:
         try:
@@ -37,6 +41,25 @@ class Orchestrator:
             return {}
 
     # ── Theory engine ─────────────────────────────────────────
+    def get_world_status_text(self) -> str:
+        """Resumen del WorldSimulationEngine para el system prompt."""
+        status = self.world_sim.get_world_status()
+        lines = []
+        critical = status.get("critical_fronts", {})
+        if critical:
+            lines.append("Frentes críticos: " + ", ".join(
+                f"{n} (etapa {s})" for n, s in critical.items()
+            ))
+        rep = status.get("reputation", {})
+        if rep:
+            lines.append("Reputación: " + ", ".join(
+                f"{f}: {v:+d}" for f, v in rep.items()
+            ))
+        events = status.get("recent_events", [])
+        if events:
+            lines.append("Eventos recientes:\n" + "\n".join(f"  - {e}" for e in events[-3:]))
+        return "\n".join(lines)
+
     def record_event(self, event_type: str, intensity: int = 1) -> None:
         """Registra un evento de sesión (llamar desde app.py tras cada turno)."""
         self.pacing_agent.update_event_history(event_type, intensity)
@@ -101,6 +124,7 @@ class Orchestrator:
         pacing_result = self.pacing_agent.tick()
         move_ctx = self._build_move_context(app_state, active_fronts, active_npcs)
         master_move = self.master_moves.select_move(move_ctx)
+        world_status = self.get_world_status_text()
 
         return self.builder.build_narrator_prompt(
             system_slug=system_slug,
@@ -113,6 +137,7 @@ class Orchestrator:
             clocks_summary=clocks,
             pacing_instruction=pacing_result["instruction"],
             master_move=master_move,
+            world_status=world_status,
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

@@ -70,6 +70,7 @@ class PromptBuilder:
         clocks_summary: str = "",
         pacing_instruction: str = "",
         master_move: dict = None,
+        world_status: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
@@ -102,6 +103,9 @@ class PromptBuilder:
 
         if active_npcs:
             sections.append(f"NPCS EN EL MUNDO:\n{active_npcs}")
+
+        if world_status:
+            sections.append(f"ESTADO DEL MUNDO:\n{world_status}")
 
         if pacing_instruction:
             sections.append(f"RITMO Y TONO:\n{pacing_instruction}")

@@ -346,4 +346,5 @@ class WorldAgent:
             "npcs_simulados": len(npc_actions),
             "informe": str(report_path),
             "narrativa": narrative,
+            "advances": advances_applied,
         }
