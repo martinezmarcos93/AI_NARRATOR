@@ -8,7 +8,7 @@ from pathlib import Path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
 from narrator.core.state_manager import StateManager
-from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent, WorldSimulationEngine
+from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent, WorldSimulationEngine, InvestigationEngine
 
 _THEORY_ENGINE_PATH = Path(__file__).parent.parent / "core" / "theory_engine"
 
@@ -32,6 +32,11 @@ class Orchestrator:
             config_path=_THEORY_ENGINE_PATH,
             vault_path=Path(vault_path),
         )
+        self.investigation = InvestigationEngine(
+            config_path=_THEORY_ENGINE_PATH,
+            vault_path=Path(vault_path),
+        )
+        self._investigation_quiet_turns: int = 0
 
     def _load_config(self, path: str) -> dict:
         try:
@@ -59,6 +64,33 @@ class Orchestrator:
         if events:
             lines.append("Eventos recientes:\n" + "\n".join(f"  - {e}" for e in events[-3:]))
         return "\n".join(lines)
+
+    def get_investigation_hint(self, app_state: dict) -> str:
+        """
+        Aplica la Regla de los 3 indicios.
+        Devuelve una instrucción para el narrador si los jugadores llevan
+        varios turnos sin avanzar en un misterio activo; cadena vacía si todo fluye.
+        """
+        ultimo = app_state.get("ultimo_evento", "dialogo")
+        if ultimo in ("exploracion", "dialogo"):
+            self._investigation_quiet_turns += 1
+        else:
+            self._investigation_quiet_turns = 0
+
+        context = {"quiet_turns": self._investigation_quiet_turns}
+        blockade = self.investigation.check_for_blockade(context)
+        if not blockade:
+            summary = self.investigation.get_active_mysteries_summary()
+            return f"Misterios activos:\n{summary}" if summary else ""
+
+        mystery_id = blockade["mystery_id"]
+        stall = self.investigation.resolve_stall(mystery_id)
+        self._investigation_quiet_turns = 0  # reset tras sugerir pista
+        return (
+            f"REGLA DE LOS 3 INDICIOS — los jugadores llevan varios turnos sin avanzar.\n"
+            f"Pista sugerida para '{mystery_id}': {stall.get('description', '')}\n"
+            f"Instrucción: {stall.get('instruction', '')}"
+        )
 
     def record_event(self, event_type: str, intensity: int = 1) -> None:
         """Registra un evento de sesión (llamar desde app.py tras cada turno)."""
@@ -125,6 +157,7 @@ class Orchestrator:
         move_ctx = self._build_move_context(app_state, active_fronts, active_npcs)
         master_move = self.master_moves.select_move(move_ctx)
         world_status = self.get_world_status_text()
+        investigation_hint = self.get_investigation_hint(app_state)
 
         return self.builder.build_narrator_prompt(
             system_slug=system_slug,
@@ -138,6 +171,7 @@ class Orchestrator:
             pacing_instruction=pacing_result["instruction"],
             master_move=master_move,
             world_status=world_status,
+            investigation_hint=investigation_hint,
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

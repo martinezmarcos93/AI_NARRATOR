@@ -6,8 +6,8 @@ from .pacing_tone_agent import PacingToneAgent
 from .investigation_engine import InvestigationEngine
 
 __all__ = [
-    'MasterMoveEngine',
-    'WorldSimulationEngine',
-    'PacingToneAgent',
-    'InvestigationEngine'
+    "MasterMoveEngine",
+    "WorldSimulationEngine",
+    "PacingToneAgent",
+    "InvestigationEngine",
 ]

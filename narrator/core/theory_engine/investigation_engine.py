@@ -1,5 +1,6 @@
 # ai-narrator/narrator/core/theory_engine/investigation_engine.py
 
+import json
 import yaml
 import logging
 import random
@@ -275,37 +276,27 @@ class InvestigationEngine:
     def check_for_blockade(self, context: Dict) -> Optional[Dict]:
         """
         Detecta si los jugadores están en un punto muerto narrativo.
-        
-        Args:
-            context: Contexto actual de la partida (ubicación, tiempo, última acción).
-            
-        Returns:
-            Un diccionario con información de desbloqueo, o None si no hay bloqueo.
+
+        context esperado:
+          - quiet_turns: int — turnos consecutivos sin acción de investigación relevante
         """
-        # Criterios para detectar un bloqueo:
-        # 1) Han pasado más de 15 minutos de juego sin avanzar en un misterio.
-        # 2) Los jugadores han visitado una ubicación clave y no encontraron la pista esperada.
-        # 3) La última acción no relacionada con la investigación es repetitiva o vacía.
+        if not self.investigation_state.get('mysteries'):
+            return None
 
-        # Por simplicidad, usaremos la regla del tiempo
-        time_since_last_clue = self._get_time_since_last_clue_found()
-        if time_since_last_clue > self.tools_config.get('investigation_rules', {}).get('clue_timeout_seconds', 1200):
-            # Detectar qué misterio debería avanzar
-            mystery_id = self._get_most_stalled_mystery()
-            if mystery_id:
-                return {
-                    'mystery_id': mystery_id,
-                    'issue': 'stalled',
-                    'suggestion': self._generate_blockade_solution(mystery_id)
-                }
-        
+        quiet_turns = context.get('quiet_turns', 0)
+        timeout_turns = self.tools_config.get('investigation_rules', {}).get('clue_timeout_turns', 4)
+
+        if quiet_turns < timeout_turns:
+            return None
+
+        mystery_id = self._get_most_stalled_mystery()
+        if mystery_id:
+            return {
+                'mystery_id': mystery_id,
+                'issue': 'stalled',
+                'suggestion': self._generate_blockade_solution(mystery_id),
+            }
         return None
-
-    def _get_time_since_last_clue_found(self) -> float:
-        """Calcula el tiempo transcurrido desde la última pista encontrada."""
-        # Implementación simplificada: usaríamos un timestamp almacenado en el estado
-        # Para este ejemplo, retornamos un valor fijo alto para propósitos de prueba
-        return 1800  # 30 minutos
 
     def _get_most_stalled_mystery(self) -> Optional[str]:
         """Encuentra el misterio que más tiempo lleva sin avanzar."""
@@ -373,6 +364,20 @@ class InvestigationEngine:
             'description': new_clue['description'],
             'instruction': f"El narrador debe crear un evento o un objeto en la escena actual que revele esta pista."
         }
+
+    def get_active_mysteries_summary(self) -> str:
+        """Resumen de misterios activos para inyectar en el system prompt."""
+        mysteries = self.investigation_state.get('mysteries', {})
+        if not mysteries:
+            return ""
+        lines = []
+        for mid, data in mysteries.items():
+            if data.get('status') != 'active':
+                continue
+            found = len(data.get('clues_found', []))
+            total = len(data.get('all_clues', []))
+            lines.append(f"- {data.get('description', mid)} ({found}/{total} pistas encontradas)")
+        return "\n".join(lines)
 
     def _create_emergency_clue(self, mystery_id: str) -> Dict:
         """Crea una pista de emergencia para un misterio bloqueado."""
