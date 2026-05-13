@@ -275,6 +275,30 @@ def format_roll_result(rolls: list[int], sides: int, modifier: int = 0) -> str:
     return f"[{rolls_str}] = {total}"
 
 # ─────────────────────────────────────────────
+#  EVENT DETECTION (para PacingToneAgent)
+# ─────────────────────────────────────────────
+_EVENT_KEYWORDS: dict[str, tuple[list[str], int]] = {
+    "combate":     (["ataco", "ataca", "disparo", "golpeo", "peleo", "lucho",
+                     "combate", "hiero", "mato", "ataque", "corto", "apuñalo"], 2),
+    "persecucion": (["huyo", "escapo", "corro", "perseguido", "persigo", "fuga",
+                     "intento huir", "intento escapar"], 3),
+    "horror":      (["me aterroriza", "me aterra", "horror", "sanidad",
+                     "enloquezco", "cordura", "locura"], 3),
+    "exploracion": (["investigo", "busco", "examino", "exploro", "inspecciono",
+                     "observo", "miro alrededor", "pistas"], 1),
+    "descanso":    (["descanso", "duermo", "descansamos", "acampo",
+                     "me recupero", "recuperarse", "descansar"], 1),
+}
+
+def _detect_event_type(text: str) -> tuple[str, int]:
+    """Devuelve (event_type, intensity) a partir del texto del jugador."""
+    t = text.lower()
+    for event_type, (keywords, intensity) in _EVENT_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return event_type, intensity
+    return "dialogo", 1
+
+# ─────────────────────────────────────────────
 #  SAVE/LOAD
 # ─────────────────────────────────────────────
 SAVE_DIR = Path.home() / ".ai_narrator"
@@ -444,6 +468,11 @@ def send_message(user_text: str = None):
 
     state["messages"].append({"role": "user", "content": user_text})
     append_to_chat("user", user_text)
+
+    if _AGENT_MODE and _orchestrator:
+        event_type, intensity = _detect_event_type(user_text)
+        state["ultimo_evento"] = event_type
+        _orchestrator.record_event(event_type, intensity)
 
     if _AGENT_MODE and _orchestrator:
         try:
