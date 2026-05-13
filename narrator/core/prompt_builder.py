@@ -132,10 +132,7 @@ class PromptBuilder:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
         voc = sys.get("vocabulario", {})
-        campos = sys.get("npc_campos_extra", [])
-
-        campos_labels = [c.get("label", "") for c in campos if c.get("label")]
-        campos_str = ", ".join(campos_labels) if campos_labels else "nombre, historia, habilidades"
+        schema = sys.get("character_sheet_schema", {})
 
         sections = [
             base_prompt,
@@ -144,10 +141,27 @@ class PromptBuilder:
             "Instrucciones:",
             "- Presentá opciones numeradas con sabor narrativo, no solo mecánico.",
             "- Preguntá de a UNA sección por vez. No abrumés con demasiadas preguntas.",
-            f"- Campos importantes para completar: {campos_str}.",
             "- Cuando tengas datos concretos, incluilos en un bloque ```json``` al final de tu respuesta.",
             "- Adaptá el tono al sistema y al personaje que está emergiendo.",
         ]
+
+        # Inyectar estructura esperada del JSON desde el schema
+        if schema:
+            schema_lines = ["ESTRUCTURA ESPERADA DEL JSON DEL PERSONAJE:"]
+            for sec in schema.get("base_sections", []):
+                keys = ", ".join(f["key"] for f in sec.get("fields", []))
+                schema_lines.append(f"  {sec['name']}: {keys}")
+            archetype_key = schema.get("archetype_key", "")
+            cond = schema.get("conditional_sections", {})
+            if archetype_key and cond:
+                archetypes = ", ".join(cond.keys())
+                schema_lines.append(
+                    f"  Secciones adicionales según {archetype_key}: {archetypes}"
+                )
+                schema_lines.append(
+                    f"  (incluí los campos de la sección correspondiente al {archetype_key} elegido)"
+                )
+            sections.append("\n".join(schema_lines))
 
         if manual_excerpt:
             sections.append(f"EXTRACTO DEL MANUAL (referencia):\n{manual_excerpt[:2000]}")

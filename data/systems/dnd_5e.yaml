@@ -93,3 +93,73 @@ tags_por_tipo:
   frente: ["frente", "amenaza"]
   misterio: ["misterio"]
   faccion: ["faccion", "gremio"]
+
+# --- Planilla de personaje (schema dinámico para GUI) ---
+character_sheet_schema:
+  archetype_key: clase
+  base_sections:
+    - name: "Identidad"
+      fields:
+        - {key: nombre,           label: Nombre,             type: string}
+        - {key: raza,             label: Raza,               type: string}
+        - {key: clase,            label: Clase,              type: string}
+        - {key: nivel,            label: Nivel,              type: int}
+        - {key: trasfondo,        label: Trasfondo,          type: string}
+        - {key: alineamiento,     label: Alineamiento,       type: string}
+    - name: "Atributos"
+      display: stat_block
+      fields:
+        - {key: fuerza,           label: FUE,                type: int, min: 1, max: 20}
+        - {key: destreza,         label: DES,                type: int, min: 1, max: 20}
+        - {key: constitucion,     label: CON,                type: int, min: 1, max: 20}
+        - {key: inteligencia,     label: INT,                type: int, min: 1, max: 20}
+        - {key: sabiduria,        label: SAB,                type: int, min: 1, max: 20}
+        - {key: carisma,          label: CAR,                type: int, min: 1, max: 20}
+    - name: "Combate"
+      fields:
+        - {key: hp,               label: PG actuales,        type: int}
+        - {key: hp_max,           label: PG máximos,         type: int}
+        - {key: ca,               label: CA,                 type: int}
+        - {key: velocidad,        label: Velocidad,          type: string}
+        - {key: dado_golpe,       label: Dado de Golpe,      type: string}
+  conditional_sections:
+    mago:
+      - name: "Arcana"
+        fields:
+          - {key: escuela_magia,  label: Escuela de Magia,   type: string}
+          - {key: espacios_hechizo, label: Espacios/día,     type: string}
+          - {key: hechizos,       label: Hechizos,           type: list}
+    guerrero:
+      - name: "Capacidades"
+        fields:
+          - {key: estilo_combate, label: Estilo de Combate,  type: string}
+          - {key: surge_accion,   label: Surge de Acción,    type: string}
+          - {key: segundo_aliento,label: Segundo Aliento,    type: string}
+    clerigo:
+      - name: "Divinidad"
+        fields:
+          - {key: deidad,         label: Deidad,             type: string}
+          - {key: dominio,        label: Dominio Divino,     type: string}
+          - {key: espacios_hechizo, label: Espacios/día,     type: string}
+    picaro:
+      - name: "Astucia"
+        fields:
+          - {key: ataque_furtivo, label: Ataque Furtivo,     type: string}
+          - {key: arquetipo,      label: Arquetipo Pícaro,   type: string}
+    barbaro:
+      - name: "Furia"
+        fields:
+          - {key: furias_dia,     label: Furias por día,     type: int}
+          - {key: sendero_totem,  label: Sendero Primario,   type: string}
+    paladin:
+      - name: "Sagrado"
+        fields:
+          - {key: deidad,         label: Deidad,             type: string}
+          - {key: juramento,      label: Juramento,          type: string}
+          - {key: imposicion_manos, label: Imposición de Manos, type: string}
+    brujo:
+      - name: "Patrono"
+        fields:
+          - {key: patron,         label: Patrón Infernal,    type: string}
+          - {key: invocaciones,   label: Invocaciones,       type: list}
+          - {key: espacios_hechizo, label: Espacios (regen), type: string}

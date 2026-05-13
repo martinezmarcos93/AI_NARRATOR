@@ -572,8 +572,56 @@ def build_dice_panel(parent):
     )
 
 # ─────────────────────────────────────────────
-#  GUI — CHARACTER SHEET
+#  GUI — CHARACTER SHEET (schema-driven)
 # ─────────────────────────────────────────────
+def _dots(value, max_val: int = 5) -> str:
+    try:
+        v = max(0, min(int(value), max_val))
+    except (ValueError, TypeError):
+        v = 0
+    return "●" * v + "○" * (max_val - v)
+
+def _stat(value) -> str:
+    try:
+        v = int(value)
+        mod = (v - 10) // 2
+        return f"{v} ({'+' if mod >= 0 else ''}{mod})"
+    except (ValueError, TypeError):
+        return str(value)
+
+def _render_field(label: str, value, display: str, ftype: str, max_val: int, parent: str):
+    with dpg.group(horizontal=True, parent=parent):
+        dpg.add_text(f"{label}:", color=list(C_TEXT_DIM), wrap=72)
+        if value is None or value == "":
+            dpg.add_text("—", color=list(C_TEXT_DARK))
+        elif isinstance(value, list):
+            dpg.add_text(", ".join(str(x) for x in value), color=list(C_TEXT), wrap=88)
+        elif display == "dots" and ftype == "int":
+            dpg.add_text(_dots(value, max_val), color=list(C_GOLD))
+        elif display == "stat_block" and ftype == "int":
+            dpg.add_text(_stat(value), color=list(C_TEXT))
+        else:
+            dpg.add_text(str(value), color=list(C_TEXT), wrap=88)
+
+def _render_section(section: dict, char: dict, parent: str, rendered: set):
+    display = section.get("display", "default")
+    dpg.add_text(section.get("name", "").upper(), color=list(C_GOLD_DIM), parent=parent)
+    for field in section.get("fields", []):
+        key = field.get("key", "")
+        rendered.add(key)
+        value = char.get(key)
+        if value is None:
+            continue
+        _render_field(
+            label=field.get("label", key),
+            value=value,
+            display=display,
+            ftype=field.get("type", "string"),
+            max_val=field.get("max", 5),
+            parent=parent,
+        )
+    dpg.add_spacer(height=5, parent=parent)
+
 def refresh_character_panel():
     try:
         dpg.delete_item("char_content", children_only=True)
@@ -588,15 +636,61 @@ def refresh_character_panel():
                      parent="char_content", color=list(C_TEXT_DIM), wrap=160)
         return
 
-    for key, val in char.items():
-        with dpg.group(horizontal=False, parent="char_content"):
-            dpg.add_text(str(key).upper(), color=list(C_GOLD_DIM))
-            if isinstance(val, dict):
-                for k2, v2 in val.items():
-                    dpg.add_text(f"  {k2}: {v2}", color=list(C_TEXT), wrap=160)
-            else:
-                dpg.add_text(str(val), color=list(C_TEXT), wrap=160)
-            add_spacer(4)
+    # Intentar cargar schema del sistema activo
+    schema = None
+    if _AGENT_MODE and _orchestrator:
+        try:
+            sys_data = _orchestrator.builder.load_system(state.get("system_slug", "generic"))
+            schema = sys_data.get("character_sheet_schema")
+        except Exception:
+            pass
+
+    if not schema:
+        # Fallback genérico si no hay schema
+        for key, val in char.items():
+            with dpg.group(horizontal=False, parent="char_content"):
+                dpg.add_text(str(key).replace("_", " ").upper(), color=list(C_GOLD_DIM))
+                if isinstance(val, dict):
+                    for k2, v2 in val.items():
+                        dpg.add_text(f"  {k2}: {v2}", color=list(C_TEXT), wrap=160)
+                elif isinstance(val, list):
+                    dpg.add_text(", ".join(str(x) for x in val), color=list(C_TEXT), wrap=160)
+                else:
+                    dpg.add_text(str(val), color=list(C_TEXT), wrap=160)
+                add_spacer(4)
+        return
+
+    rendered: set = set()
+    archetype_key = schema.get("archetype_key", "")
+    archetype_val = str(char.get(archetype_key, "")).lower().strip() if archetype_key else ""
+
+    # Secciones base
+    for section in schema.get("base_sections", []):
+        _render_section(section, char, "char_content", rendered)
+
+    # Secciones condicionales según clan/clase/tipo
+    if archetype_val:
+        cond = schema.get("conditional_sections", {})
+        for cond_key, sections in cond.items():
+            if cond_key.lower() == archetype_val:
+                for section in sections:
+                    _render_section(section, char, "char_content", rendered)
+                break
+
+    # Extras: campos que el LLM generó fuera del schema
+    extras = {k: v for k, v in char.items() if k not in rendered}
+    if extras:
+        dpg.add_text("OTROS", color=list(C_GOLD_DIM), parent="char_content")
+        for key, val in extras.items():
+            _render_field(
+                label=key.replace("_", " ").title(),
+                value=val,
+                display="default",
+                ftype="string",
+                max_val=5,
+                parent="char_content",
+            )
+        dpg.add_spacer(height=4, parent="char_content")
 
 # ─────────────────────────────────────────────
 #  GUI — SESSION LOG

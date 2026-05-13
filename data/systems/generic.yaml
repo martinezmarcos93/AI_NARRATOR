@@ -78,3 +78,24 @@ tags_por_tipo:
   frente: ["frente"]
   misterio: ["misterio"]
   faccion: ["faccion"]
+
+# --- Planilla de personaje (schema dinámico para GUI) ---
+character_sheet_schema:
+  archetype_key: tipo
+  base_sections:
+    - name: "Identidad"
+      fields:
+        - {key: nombre,           label: Nombre,             type: string}
+        - {key: tipo,             label: Tipo,               type: string}
+        - {key: afiliacion,       label: Afiliación,         type: string}
+        - {key: trasfondo,        label: Trasfondo,          type: string}
+    - name: "Atributos"
+      fields:
+        - {key: atributo_1,       label: Atributo 1,         type: string}
+        - {key: atributo_2,       label: Atributo 2,         type: string}
+        - {key: atributo_3,       label: Atributo 3,         type: string}
+    - name: "Estado"
+      fields:
+        - {key: hp,               label: Salud,              type: string}
+        - {key: recurso,          label: Recurso principal,  type: string}
+        - {key: habilidades,      label: Habilidades,        type: list}

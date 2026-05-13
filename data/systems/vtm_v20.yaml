@@ -96,3 +96,99 @@ tags_por_tipo:
   frente: ["frente", "amenaza"]
   misterio: ["misterio"]
   faccion: ["cofradia", "faccion"]
+
+# --- Planilla de personaje (schema dinámico para GUI) ---
+character_sheet_schema:
+  archetype_key: clan
+  base_sections:
+    - name: "Identidad"
+      fields:
+        - {key: nombre,           label: Nombre,             type: string}
+        - {key: clan,             label: Clan,               type: string}
+        - {key: generacion,       label: Generación,         type: int}
+        - {key: naturaleza,       label: Naturaleza,         type: string}
+        - {key: comportamiento,   label: Comportamiento,     type: string}
+        - {key: senda,            label: Senda,              type: string}
+        - {key: cofradia,         label: Cofradía,           type: string}
+    - name: "Atributos"
+      display: dots
+      fields:
+        - {key: fuerza,           label: Fuerza,             type: int, min: 1, max: 5}
+        - {key: destreza,         label: Destreza,           type: int, min: 1, max: 5}
+        - {key: resistencia,      label: Resistencia,        type: int, min: 1, max: 5}
+        - {key: carisma,          label: Carisma,            type: int, min: 1, max: 5}
+        - {key: manipulacion,     label: Manipulación,       type: int, min: 1, max: 5}
+        - {key: apariencia,       label: Apariencia,         type: int, min: 1, max: 5}
+        - {key: percepcion,       label: Percepción,         type: int, min: 1, max: 5}
+        - {key: inteligencia,     label: Inteligencia,       type: int, min: 1, max: 5}
+        - {key: astucia,          label: Astucia,            type: int, min: 1, max: 5}
+    - name: "Estado"
+      fields:
+        - {key: humanidad,        label: Humanidad,          type: int, min: 0, max: 10}
+        - {key: fuerza_voluntad,  label: Fuerza de Voluntad, type: int, min: 0, max: 10}
+        - {key: sangre,           label: Sangre actual,      type: int}
+        - {key: sangre_max,       label: Sangre máx,         type: int}
+  conditional_sections:
+    brujah:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: potencia,       label: Potencia,           type: int, min: 0, max: 5}
+          - {key: celeridad,      label: Celeridad,          type: int, min: 0, max: 5}
+          - {key: resistencia_d,  label: Resistencia,        type: int, min: 0, max: 5}
+    malkavian:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: auspex,         label: Auspex,             type: int, min: 0, max: 5}
+          - {key: dominacion,     label: Dominación,         type: int, min: 0, max: 5}
+          - {key: ofuscacion,     label: Ofuscación,         type: int, min: 0, max: 5}
+    nosferatu:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: animalismo,     label: Animalismo,         type: int, min: 0, max: 5}
+          - {key: ofuscacion,     label: Ofuscación,         type: int, min: 0, max: 5}
+          - {key: potencia,       label: Potencia,           type: int, min: 0, max: 5}
+    toreador:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: auspex,         label: Auspex,             type: int, min: 0, max: 5}
+          - {key: celeridad,      label: Celeridad,          type: int, min: 0, max: 5}
+          - {key: presencia,      label: Presencia,          type: int, min: 0, max: 5}
+    tremere:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: auspex,         label: Auspex,             type: int, min: 0, max: 5}
+          - {key: dominacion,     label: Dominación,         type: int, min: 0, max: 5}
+          - {key: taumaturgia,    label: Taumaturgia,        type: int, min: 0, max: 5}
+    ventrue:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: dominacion,     label: Dominación,         type: int, min: 0, max: 5}
+          - {key: fortaleza,      label: Fortaleza,          type: int, min: 0, max: 5}
+          - {key: presencia,      label: Presencia,          type: int, min: 0, max: 5}
+    gangrel:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: animalismo,     label: Animalismo,         type: int, min: 0, max: 5}
+          - {key: fortaleza,      label: Fortaleza,          type: int, min: 0, max: 5}
+          - {key: protean,        label: Protean,            type: int, min: 0, max: 5}
+    lasombra:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: dominacion,     label: Dominación,         type: int, min: 0, max: 5}
+          - {key: obtenebration,  label: Obtenebracion,      type: int, min: 0, max: 5}
+          - {key: potencia,       label: Potencia,           type: int, min: 0, max: 5}
+    tzimisce:
+      - name: "Disciplinas"
+        display: dots
+        fields:
+          - {key: animalismo,     label: Animalismo,         type: int, min: 0, max: 5}
+          - {key: auspex,         label: Auspex,             type: int, min: 0, max: 5}
+          - {key: vicisitud,      label: Vicisitud,          type: int, min: 0, max: 5}

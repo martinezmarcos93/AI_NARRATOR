@@ -103,3 +103,59 @@ tags_por_tipo:
   frente: ["frente", "amenaza"]
   misterio: ["misterio"]
   faccion: ["faccion", "organizacion"]
+
+# --- Planilla de personaje (schema dinámico para GUI) ---
+character_sheet_schema:
+  archetype_key: clase
+  base_sections:
+    - name: "Identidad"
+      fields:
+        - {key: nombre,           label: Nombre,             type: string}
+        - {key: ancestro,         label: Ancestro,           type: string}
+        - {key: clase,            label: Clase,              type: string}
+        - {key: nivel,            label: Nivel,              type: int}
+        - {key: trasfondo,        label: Trasfondo,          type: string}
+        - {key: alineamiento,     label: Alineamiento,       type: string}
+    - name: "Atributos"
+      display: stat_block
+      fields:
+        - {key: fuerza,           label: FUE,                type: int, min: 1, max: 20}
+        - {key: destreza,         label: DES,                type: int, min: 1, max: 20}
+        - {key: constitucion,     label: CON,                type: int, min: 1, max: 20}
+        - {key: inteligencia,     label: INT,                type: int, min: 1, max: 20}
+        - {key: sabiduria,        label: SAB,                type: int, min: 1, max: 20}
+        - {key: carisma,          label: CAR,                type: int, min: 1, max: 20}
+    - name: "Combate"
+      fields:
+        - {key: hp,               label: PG actuales,        type: int}
+        - {key: hp_max,           label: PG máximos,         type: int}
+        - {key: ca,               label: CA,                 type: int}
+        - {key: velocidad,        label: Velocidad,          type: string}
+        - {key: percepcion,       label: Percepción,         type: string}
+  conditional_sections:
+    mago:
+      - name: "Arcana"
+        fields:
+          - {key: tradicion,      label: Tradición Mágica,   type: string}
+          - {key: hechizos,       label: Hechizos preparados, type: list}
+    guerrero:
+      - name: "Capacidades"
+        fields:
+          - {key: hazanas,        label: Hazañas de Clase,   type: list}
+          - {key: especialidad,   label: Especialidad,       type: string}
+    clerigo:
+      - name: "Divinidad"
+        fields:
+          - {key: deidad,         label: Deidad,             type: string}
+          - {key: doctrina,       label: Doctrina,           type: string}
+          - {key: hechizos,       label: Hechizos divinos,   type: list}
+    alquimista:
+      - name: "Fórmulas"
+        fields:
+          - {key: formulas,       label: Fórmulas conocidas, type: list}
+          - {key: resonancia,     label: Resonancia,         type: int}
+    barbaro:
+      - name: "Instinto"
+        fields:
+          - {key: instinto,       label: Instinto Bárbaro,   type: string}
+          - {key: furias_dia,     label: Furias por día,     type: int}

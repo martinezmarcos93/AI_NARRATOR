@@ -96,3 +96,48 @@ tags_por_tipo:
   frente: ["frente", "amenaza-cosmica"]
   misterio: ["misterio", "investigacion"]
   faccion: ["culto", "organizacion"]
+
+# --- Planilla de personaje (schema dinámico para GUI) ---
+character_sheet_schema:
+  archetype_key: ocupacion
+  base_sections:
+    - name: "Identidad"
+      fields:
+        - {key: nombre,           label: Nombre,             type: string}
+        - {key: ocupacion,        label: Ocupación,          type: string}
+        - {key: edad,             label: Edad,               type: int}
+        - {key: era,              label: Era,                type: string}
+        - {key: residencia,       label: Residencia,         type: string}
+    - name: "Características"
+      display: stat_block
+      fields:
+        - {key: fuerza,           label: FUE,                type: int, min: 1, max: 99}
+        - {key: constitucion,     label: CON,                type: int, min: 1, max: 99}
+        - {key: tamano,           label: TAM,                type: int, min: 1, max: 99}
+        - {key: destreza,         label: DES,                type: int, min: 1, max: 99}
+        - {key: apariencia,       label: APA,                type: int, min: 1, max: 99}
+        - {key: inteligencia,     label: INT,                type: int, min: 1, max: 99}
+        - {key: poder,            label: POD,                type: int, min: 1, max: 99}
+        - {key: educacion,        label: EDU,                type: int, min: 1, max: 99}
+    - name: "Estado"
+      fields:
+        - {key: pv,               label: PV actuales,        type: int}
+        - {key: pv_max,           label: PV máximos,         type: int}
+        - {key: cordura,          label: Cordura actual,     type: int}
+        - {key: cordura_max,      label: Cordura máxima,     type: int}
+        - {key: suerte,           label: Suerte,             type: int}
+        - {key: puntos_magia,     label: Puntos de Magia,    type: int}
+        - {key: mitos,            label: Conocimiento Mitos, type: int}
+    - name: "Habilidades"
+      fields:
+        - {key: habilidades,      label: Habilidades clave,  type: list}
+  conditional_sections:
+    detective:
+      - name: "Especialidad"
+        fields:
+          - {key: contactos_policia, label: Contactos Policiales, type: string}
+    medico:
+      - name: "Especialidad"
+        fields:
+          - {key: medicina,       label: Medicina (%),       type: int}
+          - {key: primeros_auxilios, label: Primeros Auxilios (%), type: int}
