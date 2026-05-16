@@ -1,6 +1,7 @@
 # ai-narrator/narrator/core/theory_engine/world_simulation_engine.py
 
 import yaml
+from narrator.logger import logger
 import json
 import logging
 from datetime import datetime

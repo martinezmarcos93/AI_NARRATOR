@@ -1,6 +1,7 @@
 # ai-narrator/narrator/core/theory_engine/pacing_tone_agent.py
 
 import yaml
+from narrator.logger import logger
 import logging
 import random
 from pathlib import Path

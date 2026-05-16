@@ -4,6 +4,7 @@ Detecta tiradas de dados, extracciones de JSON, eventos importantes.
 """
 
 import re
+from narrator.logger import logger
 import json
 
 

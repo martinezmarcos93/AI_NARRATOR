@@ -5,6 +5,7 @@ GUI: Dear PyGui  |  Backend: narrator/core/ + narrator/agents/
 """
 
 import dearpygui.dearpygui as dpg
+from narrator.logger import logger
 import fitz  # PyMuPDF
 import requests
 import threading
@@ -141,8 +142,8 @@ def _proc_start(title: str):
         dpg.delete_item("proc_log_area", children_only=True)
         dpg.configure_item("proc_bar_group", show=True)
         dpg.configure_item("proc_detail_window", show=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
 
 def _proc_step(msg: str):
     global _proc_count
@@ -153,15 +154,15 @@ def _proc_step(msg: str):
                      color=list(C_TEXT_DIM), wrap=420)
         dpg.set_y_scroll("proc_log_area",
                          dpg.get_y_scroll_max("proc_log_area"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
 
 def _proc_done(summary: str):
     try:
         dpg.configure_item("proc_bar_group", show=False)
         dpg.configure_item("proc_detail_window", show=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
     append_to_chat("system", summary)
 
 # ─────────────────────────────────────────────
@@ -172,8 +173,8 @@ def get_models():
         r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         if r.status_code == 200:
             return [m["name"] for m in r.json().get("models", [])]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
     return []
 
 def stream_chat(messages, callback, done_callback):
@@ -201,8 +202,8 @@ def stream_chat(messages, callback, done_callback):
                             callback(chunk)
                         if data.get("done"):
                             break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Error inesperado: {e}", exc_info=True)
             done_callback(full)
     except Exception as e:
         done_callback(f"[Error de conexión: {e}]")
@@ -434,8 +435,8 @@ def finish_streaming(full_text: str):
         try:
             dpg.set_value("streaming_label", "")
             dpg.configure_item("streaming_group", show=False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error inesperado: {e}", exc_info=True)
         append_to_chat("assistant", full_text)
         if _refresh_char:
             refresh_character_panel()
@@ -490,8 +491,8 @@ def send_message(user_text: str = None):
     try:
         dpg.configure_item("streaming_group", show=True)
         dpg.set_value("streaming_label", "...")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
 
     def run():
         stream_chat(messages_to_send, update_streaming_label, finish_streaming)
@@ -504,7 +505,7 @@ def send_message(user_text: str = None):
 def do_roll(sides: int):
     try:
         n = int(dpg.get_value(f"dice_count_{sides}"))
-    except Exception:
+    except Exception as e:
         n = 1
     n = max(1, min(n, 20))
 
@@ -625,7 +626,7 @@ def _render_section(section: dict, char: dict, parent: str, rendered: set):
 def refresh_character_panel():
     try:
         dpg.delete_item("char_content", children_only=True)
-    except Exception:
+    except Exception as e:
         return
 
     char = state["character"]
@@ -642,8 +643,8 @@ def refresh_character_panel():
         try:
             sys_data = _orchestrator.builder.load_system(state.get("system_slug", "generic"))
             schema = sys_data.get("character_sheet_schema")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error inesperado: {e}", exc_info=True)
 
     if not schema:
         # Fallback genérico si no hay schema
@@ -701,8 +702,8 @@ def refresh_log():
         for entry in state["session_log"][-20:]:
             dpg.add_text(entry, parent="log_content", color=list(C_TEXT_DIM), wrap=160)
             dpg.add_spacer(height=2, parent="log_content")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
 
 # ─────────────────────────────────────────────
 #  GUI — ESTADO (relojes de frentes) — Sprint 3
@@ -716,7 +717,7 @@ def _clock_bar(tick: int, max_ticks: int) -> str:
 def refresh_estado_panel():
     try:
         dpg.delete_item("estado_content", children_only=True)
-    except Exception:
+    except Exception as e:
         return
 
     # Número de sesión
@@ -738,7 +739,7 @@ def refresh_estado_panel():
     if _AGENT_MODE and _orchestrator:
         try:
             fronts = _orchestrator.retriever.get_fronts_with_clocks()
-        except Exception:
+        except Exception as e:
             fronts = []
     else:
         fronts = []
@@ -854,8 +855,8 @@ def refresh_character_editor():
     try:
         json_str = json.dumps(state["character"], ensure_ascii=False, indent=2)
         dpg.set_value("char_json_editor", json_str)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
 
 def apply_character_edits():
     """Lee el JSON del editor, valida y aplica al estado."""
@@ -884,8 +885,8 @@ def run_world_agent():
 
     try:
         dpg.disable_item("world_advance_btn")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
     _ui(lambda: _proc_start("Avanzando el mundo entre sesiones..."))
 
     def on_progress(msg: str):
@@ -959,8 +960,8 @@ def load_pdf_callback(sender, app_data):
             try:
                 dpg.enable_item("build_vault_btn")
                 dpg.enable_item("add_pdf_btn")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error inesperado: {e}", exc_info=True)
             append_to_chat("system", f"Manual cargado: {n}\nSistema: {sn}")
             send_message(ap)
 
@@ -981,8 +982,8 @@ def build_vault_callback():
 
     try:
         dpg.disable_item("build_vault_btn")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error inesperado: {e}", exc_info=True)
     _ui(lambda: _proc_start("Construyendo vault del sistema..."))
 
     def on_progress(msg: str):
@@ -1407,7 +1408,7 @@ def main():
         print(f"✓ Ollama conectado. Modelos: {', '.join(models) if models else 'ninguno'}")
         if models:
             state["model"] = models[0]
-    except Exception:
+    except Exception as e:
         print("⚠ No se encontró Ollama en localhost:11434")
         print("  Instalar: https://ollama.com")
         print("  Luego: ollama pull llama3.2")

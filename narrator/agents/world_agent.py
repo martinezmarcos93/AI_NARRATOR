@@ -5,6 +5,7 @@ acciones de NPCs de alta amenaza, y genera un informe de downtime narrativo.
 """
 
 import json
+from narrator.logger import logger
 import re
 from datetime import datetime
 from pathlib import Path
@@ -173,7 +174,7 @@ class WorldAgent:
         try:
             result = json.loads(response.strip())
             return result[:3] if isinstance(result, list) else []
-        except Exception:
+        except Exception as e:
             return []
 
     # ── Aplicar avances al vault ──────────────────────────────

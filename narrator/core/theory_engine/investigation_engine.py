@@ -1,6 +1,7 @@
 # ai-narrator/narrator/core/theory_engine/investigation_engine.py
 
 import json
+from narrator.logger import logger
 import yaml
 import logging
 import random

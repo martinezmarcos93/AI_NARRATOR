@@ -4,6 +4,7 @@ Es Python puro: no hace llamadas al LLM, solo decide QUÉ contexto armar y QUIÉ
 """
 
 import yaml
+from narrator.logger import logger
 from pathlib import Path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
@@ -42,7 +43,7 @@ class Orchestrator:
         try:
             with open(path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
-        except Exception:
+        except Exception as e:
             return {}
 
     # ── Theory engine ─────────────────────────────────────────

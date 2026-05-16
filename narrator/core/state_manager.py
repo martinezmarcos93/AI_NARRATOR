@@ -4,6 +4,7 @@ Relojes de frentes, flags de eventos, historial de sesiones, escena actual.
 """
 
 import yaml
+from narrator.logger import logger
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -51,7 +52,7 @@ class StateManager:
                     merged[key] = val
             self.data = merged
             return True
-        except Exception:
+        except Exception as e:
             return False
 
     def save(self):

@@ -4,6 +4,7 @@ Maneja streaming y llamadas síncronas, gestión de modelos.
 """
 
 import requests
+from narrator.logger import logger
 import json
 from typing import Callable
 
@@ -24,8 +25,8 @@ class LLMClient:
             r = requests.get(f"{self.base_url}/api/tags", timeout=5)
             if r.status_code == 200:
                 return [m["name"] for m in r.json().get("models", [])]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error inesperado: {e}", exc_info=True)
         return []
 
     def is_connected(self) -> bool:
@@ -94,8 +95,8 @@ class LLMClient:
                                 on_chunk(chunk)
                             if data.get("done"):
                                 break
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.error(f"Error inesperado: {e}", exc_info=True)
                 on_done(full)
         except Exception as e:
             on_done(f"[Error de conexión: {e}]")

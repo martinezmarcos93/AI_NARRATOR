@@ -5,6 +5,7 @@ y el estado de campaña. Obsidian lo ve automáticamente al refrescar.
 """
 
 import re
+from narrator.logger import logger
 from datetime import datetime
 from pathlib import Path
 from typing import Optional

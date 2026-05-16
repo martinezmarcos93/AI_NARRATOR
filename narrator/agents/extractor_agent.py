@@ -8,6 +8,7 @@ Pipeline:
 """
 
 import json
+from narrator.logger import logger
 import re
 import shutil
 from pathlib import Path
@@ -205,7 +206,7 @@ def _parse_json_response(text: str) -> list:
     try:
         result = json.loads(text.strip())
         return result if isinstance(result, list) else []
-    except Exception:
+    except Exception as e:
         return []
 
 

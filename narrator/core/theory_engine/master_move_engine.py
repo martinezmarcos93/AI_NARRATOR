@@ -1,6 +1,7 @@
 # ai-narrator/narrator/core/theory_engine/master_move_engine.py
 
 import yaml
+from narrator.logger import logger
 import random
 import logging
 from pathlib import Path

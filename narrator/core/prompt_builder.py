@@ -4,6 +4,7 @@ Mantiene el contexto total dentro de un budget de palabras para modelos pequeño
 """
 
 import json
+from narrator.logger import logger
 import yaml
 from pathlib import Path
 

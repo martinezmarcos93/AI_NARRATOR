@@ -5,6 +5,7 @@ Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible
 """
 
 import re
+from narrator.logger import logger
 from pathlib import Path
 from typing import Optional
 
@@ -24,8 +25,8 @@ def _parse_file(path: Path) -> tuple[dict, str]:
         try:
             post = fm.loads(text)
             return dict(post.metadata), post.content
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error inesperado: {e}", exc_info=True)
     return {}, text
 
 
