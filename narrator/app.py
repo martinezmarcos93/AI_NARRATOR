@@ -17,6 +17,9 @@ from pathlib import Path
 from datetime import datetime
 
 from narrator import PROJECT_ROOT
+from narrator.core.llm_client import LLMClient
+from narrator.core.session_manager import SessionManager
+session_manager = SessionManager()
 
 # ── Backend de agentes ────────────────────────────────────
 # Carga con fallback: si el package no está listo, usa modo legacy.
@@ -25,7 +28,6 @@ try:
     from narrator.agents.extractor_agent import ExtractorAgent
     from narrator.agents.narrator_agent import NarratorAgent
     from narrator.agents.world_agent import WorldAgent
-    from narrator.core.llm_client import LLMClient
     from narrator.core.prompt_builder import PromptBuilder
     from narrator.core.vault_writer import VaultWriter
 
@@ -170,45 +172,7 @@ def _proc_done(summary: str):
 # ─────────────────────────────────────────────
 #  OLLAMA API
 # ─────────────────────────────────────────────
-def get_models():
-    try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        if r.status_code == 200:
-            return [m["name"] for m in r.json().get("models", [])]
-    except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
-    return []
-
-def stream_chat(messages, callback, done_callback):
-    payload = {
-        "model": state["model"],
-        "messages": messages,
-        "stream": True,
-        "options": {"temperature": 0.85, "top_p": 0.9}
-    }
-    try:
-        with requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json=payload,
-            stream=True,
-            timeout=120
-        ) as resp:
-            full = ""
-            for line in resp.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        chunk = data.get("message", {}).get("content", "")
-                        if chunk:
-                            full += chunk
-                            callback(chunk)
-                        if data.get("done"):
-                            break
-                    except Exception as e:
-                        logger.error(f"Error inesperado: {e}", exc_info=True)
-            done_callback(full)
-    except Exception as e:
-        done_callback(f"[Error de conexión: {e}]")
+# Movido a narrator.core.llm_client
 
 # ─────────────────────────────────────────────
 #  PDF PROCESSING
@@ -301,44 +265,7 @@ def _detect_event_type(text: str) -> tuple[str, int]:
             return event_type, intensity
     return "dialogo", 1
 
-# ─────────────────────────────────────────────
-#  SAVE/LOAD
-# ─────────────────────────────────────────────
-SAVE_DIR = Path.home() / ".ai_narrator"
-SAVE_DIR.mkdir(exist_ok=True)
 
-def save_session():
-    data = {
-        "character": state["character"],
-        "messages": state["messages"][-40:],
-        "system_name": state["system_name"],
-        "system_slug": state["system_slug"],
-        "manual_name": state["manual_name"],
-        "session_log": state["session_log"],
-        "phase": state["phase"],
-        "timestamp": datetime.now().isoformat()
-    }
-    path = SAVE_DIR / "session.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return str(path)
-
-def load_session():
-    path = SAVE_DIR / "session.json"
-    if path.exists():
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        state.update({
-            "character": data.get("character", {}),
-            "messages": data.get("messages", []),
-            "system_name": data.get("system_name", ""),
-            "system_slug": data.get("system_slug", "generic"),
-            "manual_name": data.get("manual_name", ""),
-            "session_log": data.get("session_log", []),
-            "phase": data.get("phase", "idle"),
-        })
-        return True
-    return False
 
 # ─────────────────────────────────────────────
 #  GUI — HELPERS
@@ -500,7 +427,7 @@ def send_message(user_text: str = None):
         logger.error(f"Error inesperado: {e}", exc_info=True)
 
     def run():
-        stream_chat(messages_to_send, update_streaming_label, finish_streaming)
+        LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -799,7 +726,7 @@ def export_session_log(silent: bool = False) -> str:
     session_n = state.get("session_number", 1)
     date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = f"Sesion_{session_n:02d}_export_{date_str}.md"
-    export_path = SAVE_DIR / filename
+    export_path = session_manager.save_dir / filename
 
     lines = [
         f"# Sesión {session_n} — {datetime.now().strftime('%Y-%m-%d')}",
@@ -1182,7 +1109,7 @@ def build_gui():
             dpg.add_text("AI NARRATOR", color=list(C_GOLD))
             dpg.add_spacer(width=10)
             dpg.add_text("Modelo:", color=list(C_TEXT_DIM))
-            models = get_models()
+            models = LLMClient().get_models()
             state["models"] = models
             if not models:
                 models = ["(sin Ollama)"]
@@ -1204,7 +1131,7 @@ def build_gui():
             dpg.add_button(tag="build_vault_btn", label="Vault",
                            callback=build_vault_callback, enabled=False)
             dpg.add_button(label="Guardar",
-                           callback=lambda: (save_session(),
+                           callback=lambda: (session_manager.save_session(state),
                                              append_to_chat("system", "Sesion guardada.")))
 
         dpg.add_separator()
@@ -1421,7 +1348,7 @@ def main():
         print("  Luego: ollama pull llama3.2")
         print()
 
-    if load_session():
+    if session_manager.load_session(state):
         print("✓ Sesión anterior cargada")
 
     _init_vault_writer()
