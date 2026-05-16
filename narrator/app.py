@@ -119,6 +119,8 @@ state = {
     "session_number": 1,
 }
 
+state_lock = threading.Lock()
+
 # ─────────────────────────────────────────────
 #  COLA THREAD-SAFE PARA ACTUALIZACIONES DE DPG
 # ─────────────────────────────────────────────
@@ -393,7 +395,8 @@ def finish_streaming(full_text: str):
     _streaming_token = ""
 
     # Procesamiento sin DPG — hilo worker
-    state["messages"].append({"role": "assistant", "content": full_text})
+    with state_lock:
+        state["messages"].append({"role": "assistant", "content": full_text})
 
     is_important = False
     needs_char_refresh = False
@@ -401,7 +404,8 @@ def finish_streaming(full_text: str):
         is_important = _narrator_agent.is_important_event(full_text)
         char_data = _narrator_agent.extract_character_json(full_text)
         if char_data:
-            state["character"].update(char_data)
+            with state_lock:
+                state["character"].update(char_data)
             needs_char_refresh = True
     else:
         is_important = any(
@@ -411,7 +415,8 @@ def finish_streaming(full_text: str):
 
     if is_important:
         entry = f"[{datetime.now().strftime('%H:%M')}] {full_text[:120]}..."
-        state["session_log"].append(entry)
+        with state_lock:
+            state["session_log"].append(entry)
 
     if _vault_writer and _AGENT_MODE:
         last_user = ""
@@ -774,9 +779,10 @@ def add_supplement_callback(sender, app_data):
     def process():
         text = extract_pdf_text(path, max_chars=8000)
         separator = f"\n\n{'='*60}\n=== SUPLEMENTO: {name} ===\n{'='*60}\n\n"
-        state["manual_text"] += separator + text
-        state["manual_names"].append(name)
-        names_str = ", ".join(state["manual_names"])
+        with state_lock:
+            state["manual_text"] += separator + text
+            state["manual_names"].append(name)
+            names_str = ", ".join(state["manual_names"])
         _ui(lambda ns=names_str, n=name: (
             dpg.set_value("manual_status", f"✓ {ns}"),
             append_to_chat("system", f"Suplemento añadido: {n}"),
@@ -937,12 +943,13 @@ def load_pdf_callback(sender, app_data):
     def process():
         text = extract_pdf_text(path)
         system_name, system_slug = detect_system(text)
-        state["manual_text"] = text
-        state["manual_name"] = name
-        state["manual_names"] = [name]
-        state["system_name"] = system_name
-        state["system_slug"] = system_slug
-        state["phase"] = "char_creation"
+        with state_lock:
+            state["manual_text"] = text
+            state["manual_name"] = name
+            state["manual_names"] = [name]
+            state["system_name"] = system_name
+            state["system_slug"] = system_slug
+            state["phase"] = "char_creation"
 
         analysis_prompt = (
             f"Acabo de cargar el manual '{name}'. "
