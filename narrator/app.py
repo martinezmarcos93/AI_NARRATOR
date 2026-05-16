@@ -17,328 +17,10 @@ from pathlib import Path
 from datetime import datetime
 
 from narrator import PROJECT_ROOT
+from narrator.core.llm_client import LLMClient
+from narrator.core.session_manager import SessionManager
+session_manager = SessionManager()
 
-# ── Backend de agentes ────────────────────────────────────
-# Carga con fallback: si el package no está listo, usa modo legacy.
-try:
-    from narrator.agents.orchestrator import Orchestrator
-    from narrator.agents.extractor_agent import ExtractorAgent
-    from narrator.agents.narrator_agent import NarratorAgent
-    from narrator.agents.world_agent import WorldAgent
-    from narrator.core.llm_client import LLMClient
-    from narrator.core.prompt_builder import PromptBuilder
-    from narrator.core.vault_writer import VaultWriter
-
-    _CONFIG_PATH = str(PROJECT_ROOT / "config" / "config.yaml")
-    _orchestrator = Orchestrator(config_path=_CONFIG_PATH)
-    _narrator_agent = NarratorAgent()
-    _vault_writer: "VaultWriter | None" = None
-    _AGENT_MODE = True
-except Exception as _agent_err:
-    _orchestrator = None
-    _narrator_agent = None
-    _vault_writer = None
-    _AGENT_MODE = False
-    print(f"⚠ Modo legacy (sin agentes): {_agent_err}")
-
-# ─────────────────────────────────────────────
-#  CONFIGURACIÓN GLOBAL
-# ─────────────────────────────────────────────
-OLLAMA_URL = "http://localhost:11434"
-APP_TITLE  = "AI NARRATOR"
-
-# Paleta: acero oscuro + azul metalico + plateado
-C_BG          = (8,  12, 18,  255)
-C_PANEL       = (13, 18, 28,  255)
-C_SURFACE     = (20, 28, 42,  255)
-C_BORDER      = (38, 62, 98,  255)
-C_GOLD        = (95, 150, 210, 255)   # azul acero (acento principal)
-C_GOLD_DIM    = (55, 95,  155, 255)   # acero atenuado
-C_RED         = (150, 40, 50,  255)
-C_RED_BRIGHT  = (195, 60, 68,  255)
-C_TEXT        = (195, 215, 235, 255)
-C_TEXT_DIM    = (108, 132, 158, 255)
-C_TEXT_DARK   = (52,  72,  98,  255)
-C_INPUT_BG    = (10,  14,  22,  255)
-C_HOVER       = (26,  44,  68,  255)
-C_ACTIVE      = (38,  62,  92,  255)
-C_SUCCESS     = (45,  140, 88,  255)
-C_DICE_BG     = (16,  24,  38,  255)
-
-_CHAT_WRAP_W = 820   # actualizado en build_gui con el ancho real
-
-_SYSTEM_PROMPT_LEGACY = """
-Eres un Narrador de juegos de rol de élite. Experto en Mundo de Tinieblas, D&D, Pathfinder, Call of Cthulhu y sistemas PbtA.
-
-FILOSOFÍA CENTRAL:
-- La historia EMERGE de las decisiones de los jugadores, no está pre-escrita
-- Nunca hagas railroading
-- Cada escena debe tener tensión (física, emocional, psicológica, moral o existencial)
-- Los fallos SIEMPRE avanzan la historia con complicaciones interesantes
-- El mundo recuerda las acciones: consecuencias persistentes
-
-NARRACIÓN ATMOSFÉRICA:
-- Describe usando todos los sentidos: sonido, textura, olor, luz, sensación espacial
-- El entorno refleja estados psicológicos
-- Muestra, nunca expliques directamente ("Los guardias dejan de sonreír cuando pasa el carruaje del obispo")
-- Dosifica información: el misterio parcial es más poderoso que la revelación total
-
-SISTEMA DE RESOLUCIÓN:
-Cuando el jugador quiera hacer algo con riesgo:
-1. Indicá qué habilidad/atributo aplica según el sistema
-2. Indicá qué dados lanzar (ej: "Tirá 1D20 + tu modificador de Destreza")
-3. Cuando recibas el resultado, narrá las consecuencias con riqueza cinematográfica
-4. En éxito parcial (PbtA 7-9): ofrecé una elección difícil
-5. En fallo: avanzá la historia con una complicación, nunca "simplemente fallás"
-
-CREACIÓN DE PERSONAJE:
-1. Detectá el sistema de juego del manual cargado
-2. Proponé opciones con menús numerados y sabor narrativo
-3. Construí la hoja progresivamente, preguntando de a una sección
-
-TONO: Adaptá el vocabulario al sistema. Respondé en español rioplatense.
-"""
-
-# ─────────────────────────────────────────────
-#  ESTADO GLOBAL
-# ─────────────────────────────────────────────
-state = {
-    "model": "llama3.2",
-    "models": [],
-    "messages": [],
-    "character": {},
-    "manual_text": "",
-    "manual_name": "",
-    "manual_names": [],       # lista de todos los PDFs cargados (multi-PDF)
-    "system_name": "",
-    "system_slug": "generic",
-    "phase": "idle",
-    "pending_roll": None,
-    "session_log": [],
-    "last_dice_result": None,
-    "session_number": 1,
-}
-
-state_lock = threading.Lock()
-
-# ─────────────────────────────────────────────
-#  COLA THREAD-SAFE PARA ACTUALIZACIONES DE DPG
-# ─────────────────────────────────────────────
-_ui_queue: "_queue_mod.Queue" = _queue_mod.Queue()
-
-def _ui(fn):
-    """Encola una función para ejecutarse en el hilo principal de DPG."""
-    _ui_queue.put(fn)
-
-# ─────────────────────────────────────────────
-#  SISTEMA DE PROGRESO EN SEGUNDO PLANO
-# ─────────────────────────────────────────────
-_proc_count = 0
-
-def _proc_start(title: str):
-    global _proc_count
-    _proc_count = 0
-    try:
-        dpg.set_value("proc_bar_text", title)
-        dpg.set_value("proc_detail_header", title)
-        dpg.delete_item("proc_log_area", children_only=True)
-        dpg.configure_item("proc_bar_group", show=True)
-        dpg.configure_item("proc_detail_window", show=True)
-    except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
-
-def _proc_step(msg: str):
-    global _proc_count
-    _proc_count += 1
-    try:
-        dpg.set_value("proc_bar_text", f"{msg}")
-        dpg.add_text(f"  {msg}", parent="proc_log_area",
-                     color=list(C_TEXT_DIM), wrap=420)
-        dpg.set_y_scroll("proc_log_area",
-                         dpg.get_y_scroll_max("proc_log_area"))
-    except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
-
-def _proc_done(summary: str):
-    try:
-        dpg.configure_item("proc_bar_group", show=False)
-        dpg.configure_item("proc_detail_window", show=False)
-    except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
-    append_to_chat("system", summary)
-
-# ─────────────────────────────────────────────
-#  OLLAMA API
-# ─────────────────────────────────────────────
-def get_models():
-    try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        if r.status_code == 200:
-            return [m["name"] for m in r.json().get("models", [])]
-    except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
-    return []
-
-def stream_chat(messages, callback, done_callback):
-    payload = {
-        "model": state["model"],
-        "messages": messages,
-        "stream": True,
-        "options": {"temperature": 0.85, "top_p": 0.9}
-    }
-    try:
-        with requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json=payload,
-            stream=True,
-            timeout=120
-        ) as resp:
-            full = ""
-            for line in resp.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        chunk = data.get("message", {}).get("content", "")
-                        if chunk:
-                            full += chunk
-                            callback(chunk)
-                        if data.get("done"):
-                            break
-                    except Exception as e:
-                        logger.error(f"Error inesperado: {e}", exc_info=True)
-            done_callback(full)
-    except Exception as e:
-        done_callback(f"[Error de conexión: {e}]")
-
-# ─────────────────────────────────────────────
-#  PDF PROCESSING
-# ─────────────────────────────────────────────
-def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
-    try:
-        doc = fitz.open(path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-            if len(text) > max_chars:
-                break
-        doc.close()
-        return text[:max_chars]
-    except Exception as e:
-        return f"Error leyendo PDF: {e}"
-
-def detect_system(text: str) -> tuple[str, str]:
-    """Detecta el sistema de juego. Devuelve (display_name, slug)."""
-    if _AGENT_MODE and _orchestrator:
-        slug = _orchestrator.detect_and_set_system(text, state)
-        names = {
-            "vtm_v20": "Mundo de Tinieblas (Vampiro V20)",
-            "dnd_5e": "Dungeons & Dragons 5e",
-            "pathfinder_2e": "Pathfinder 2e",
-            "coc_7e": "La Llamada de Cthulhu 7e",
-            "generic": "Sistema Genérico",
-        }
-        return names.get(slug, "Sistema Desconocido"), slug
-
-    t = text.lower()
-    if any(w in t for w in ["vampiro", "mascarada", "brujah", "toreador", "camarilla", "malkavian"]):
-        return "Mundo de Tinieblas (Vampiro V20)", "vtm_v20"
-    if any(w in t for w in ["hombre lobo", "garou", "apocalipsis", "tribus"]):
-        return "Mundo de Tinieblas (Hombre Lobo)", "vtm_v20"
-    if any(w in t for w in ["pathfinder", "golarion", "paizo"]):
-        return "Pathfinder 2e", "pathfinder_2e"
-    if any(w in t for w in ["dungeon", "d&d", "dungeons", "cleric", "paladin", "tiefling"]):
-        return "Dungeons & Dragons 5e", "dnd_5e"
-    if any(w in t for w in ["call of cthulhu", "investigador", "cordura", "mythos"]):
-        return "La Llamada de Cthulhu 7e", "coc_7e"
-    return "Sistema Desconocido", "generic"
-
-
-def _build_legacy_context() -> str:
-    content = _SYSTEM_PROMPT_LEGACY
-    if state["manual_text"]:
-        content += f"\n\n=== MANUAL: {state['manual_name']} ===\n{state['manual_text'][:6000]}"
-    if state["character"]:
-        content += f"\n\n=== PERSONAJE ===\n{json.dumps(state['character'], ensure_ascii=False, indent=2)}"
-    return content
-
-# ─────────────────────────────────────────────
-#  DICE ENGINE
-# ─────────────────────────────────────────────
-DICE_TYPES = [4, 6, 8, 10, 12, 20]
-
-def roll_dice(n: int, sides: int) -> list[int]:
-    return [random.randint(1, sides) for _ in range(n)]
-
-def format_roll_result(rolls: list[int], sides: int, modifier: int = 0) -> str:
-    total = sum(rolls) + modifier
-    rolls_str = " + ".join(str(r) for r in rolls)
-    if modifier != 0:
-        sign = "+" if modifier > 0 else ""
-        return f"[{rolls_str}]{sign}{modifier} = {total}"
-    return f"[{rolls_str}] = {total}"
-
-# ─────────────────────────────────────────────
-#  EVENT DETECTION (para PacingToneAgent)
-# ─────────────────────────────────────────────
-_EVENT_KEYWORDS: dict[str, tuple[list[str], int]] = {
-    "combate":     (["ataco", "ataca", "disparo", "golpeo", "peleo", "lucho",
-                     "combate", "hiero", "mato", "ataque", "corto", "apuñalo"], 2),
-    "persecucion": (["huyo", "escapo", "corro", "perseguido", "persigo", "fuga",
-                     "intento huir", "intento escapar"], 3),
-    "horror":      (["me aterroriza", "me aterra", "horror", "sanidad",
-                     "enloquezco", "cordura", "locura"], 3),
-    "exploracion": (["investigo", "busco", "examino", "exploro", "inspecciono",
-                     "observo", "miro alrededor", "pistas"], 1),
-    "descanso":    (["descanso", "duermo", "descansamos", "acampo",
-                     "me recupero", "recuperarse", "descansar"], 1),
-}
-
-def _detect_event_type(text: str) -> tuple[str, int]:
-    """Devuelve (event_type, intensity) a partir del texto del jugador."""
-    t = text.lower()
-    for event_type, (keywords, intensity) in _EVENT_KEYWORDS.items():
-        if any(kw in t for kw in keywords):
-            return event_type, intensity
-    return "dialogo", 1
-
-# ─────────────────────────────────────────────
-#  SAVE/LOAD
-# ─────────────────────────────────────────────
-SAVE_DIR = Path.home() / ".ai_narrator"
-SAVE_DIR.mkdir(exist_ok=True)
-
-def save_session():
-    data = {
-        "character": state["character"],
-        "messages": state["messages"][-40:],
-        "system_name": state["system_name"],
-        "system_slug": state["system_slug"],
-        "manual_name": state["manual_name"],
-        "session_log": state["session_log"],
-        "phase": state["phase"],
-        "timestamp": datetime.now().isoformat()
-    }
-    path = SAVE_DIR / "session.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return str(path)
-
-def load_session():
-    path = SAVE_DIR / "session.json"
-    if path.exists():
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        state.update({
-            "character": data.get("character", {}),
-            "messages": data.get("messages", []),
-            "system_name": data.get("system_name", ""),
-            "system_slug": data.get("system_slug", "generic"),
-            "manual_name": data.get("manual_name", ""),
-            "session_log": data.get("session_log", []),
-            "phase": data.get("phase", "idle"),
-        })
-        return True
-    return False
 
 # ─────────────────────────────────────────────
 #  GUI — HELPERS
@@ -500,7 +182,7 @@ def send_message(user_text: str = None):
         logger.error(f"Error inesperado: {e}", exc_info=True)
 
     def run():
-        stream_chat(messages_to_send, update_streaming_label, finish_streaming)
+        LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -799,7 +481,7 @@ def export_session_log(silent: bool = False) -> str:
     session_n = state.get("session_number", 1)
     date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = f"Sesion_{session_n:02d}_export_{date_str}.md"
-    export_path = SAVE_DIR / filename
+    export_path = session_manager.save_dir / filename
 
     lines = [
         f"# Sesión {session_n} — {datetime.now().strftime('%Y-%m-%d')}",
@@ -1182,7 +864,7 @@ def build_gui():
             dpg.add_text("AI NARRATOR", color=list(C_GOLD))
             dpg.add_spacer(width=10)
             dpg.add_text("Modelo:", color=list(C_TEXT_DIM))
-            models = get_models()
+            models = LLMClient().get_models()
             state["models"] = models
             if not models:
                 models = ["(sin Ollama)"]
@@ -1204,7 +886,7 @@ def build_gui():
             dpg.add_button(tag="build_vault_btn", label="Vault",
                            callback=build_vault_callback, enabled=False)
             dpg.add_button(label="Guardar",
-                           callback=lambda: (save_session(),
+                           callback=lambda: (session_manager.save_session(state),
                                              append_to_chat("system", "Sesion guardada.")))
 
         dpg.add_separator()
@@ -1421,7 +1103,7 @@ def main():
         print("  Luego: ollama pull llama3.2")
         print()
 
-    if load_session():
+    if session_manager.load_session(state):
         print("✓ Sesión anterior cargada")
 
     _init_vault_writer()
