@@ -1360,11 +1360,16 @@ def main():
     build_gui()
 
     while dpg.is_dearpygui_running():
-        try:
-            while True:
-                _ui_queue.get_nowait()()
-        except _queue_mod.Empty:
-            pass
+        while True:
+            try:
+                fn = _ui_queue.get_nowait()
+            except _queue_mod.Empty:
+                break
+            try:
+                fn()
+            except Exception as e:
+                # Un callback encolado roto no debe matar el render loop.
+                logger.error(f"Error en callback de UI encolado: {e}", exc_info=True)
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
