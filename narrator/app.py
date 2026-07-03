@@ -312,6 +312,15 @@ def append_to_chat(role: str, text: str):
 
     dpg.set_y_scroll("chat_scroll", dpg.get_y_scroll_max("chat_scroll"))
 
+def _add_streaming_group():
+    """Crea el grupo de streaming dentro de chat_scroll.
+    Debe re-crearse cada vez que se limpia el chat (Nueva sesión)."""
+    with dpg.group(tag="streaming_group", show=False, parent="chat_scroll"):
+        dpg.add_text("[Narrador]", color=list(C_GOLD))
+        dpg.add_text("", tag="streaming_label",
+                     color=list(C_TEXT), wrap=_CHAT_WRAP_W)
+        dpg.add_separator()
+
 def update_streaming_label(chunk: str):
     global _streaming_token
     _streaming_token += chunk
@@ -423,10 +432,13 @@ def send_message(user_text: str = None):
     _is_streaming = True
     _streaming_token = ""
     try:
+        # Mover el grupo de streaming al final del chat para que el texto
+        # en vivo aparezca debajo del último mensaje, no arriba del historial.
+        dpg.move_item("streaming_group", parent="chat_scroll")
         dpg.configure_item("streaming_group", show=True)
         dpg.set_value("streaming_label", "...")
     except Exception as e:
-        logger.error(f"Error inesperado: {e}", exc_info=True)
+        logger.error(f"Error mostrando el grupo de streaming: {e}", exc_info=True)
 
     def run():
         LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
@@ -807,6 +819,29 @@ def apply_character_edits():
             append_to_chat("system", "⚠ El JSON debe ser un objeto {}.")
     except json.JSONDecodeError as e:
         append_to_chat("system", f"⚠ JSON inválido: {e}")
+
+
+# ─────────────────────────────────────────────
+#  NUEVA SESIÓN
+# ─────────────────────────────────────────────
+def new_session_callback():
+    """Exporta el log, resetea el estado de sesión y reconstruye el chat."""
+    export_session_log(silent=True)
+    state.update({"messages": [], "character": {},
+                  "session_log": [], "phase": "idle",
+                  "last_dice_result": None,
+                  "session_number": state.get("session_number", 1) + 1})
+    if _AGENT_MODE and _orchestrator:
+        _orchestrator.pacing_agent.reset_session()
+    # delete_item borra TAMBIÉN streaming_group (vive dentro de chat_scroll):
+    # hay que recrearlo o el próximo mensaje rompe el streaming.
+    dpg.delete_item("chat_scroll", children_only=True)
+    _add_streaming_group()
+    refresh_character_panel()
+    refresh_log()
+    refresh_estado_panel()
+    session_manager.save_session(state)
+    append_to_chat("system", f"Nueva sesión iniciada: #{state['session_number']}")
 
 
 # ─────────────────────────────────────────────
@@ -1221,11 +1256,7 @@ def build_gui():
                         color=list(C_TEXT_DIM), wrap=_CHAT_WRAP_W,
                     )
                     dpg.add_separator()
-                    with dpg.group(tag="streaming_group", show=False):
-                        dpg.add_text("[Narrador]", color=list(C_GOLD))
-                        dpg.add_text("", tag="streaming_label",
-                                     color=list(C_TEXT), wrap=_CHAT_WRAP_W)
-                        dpg.add_separator()
+                _add_streaming_group()
 
                 dpg.add_spacer(height=3)
 
@@ -1276,17 +1307,7 @@ def build_gui():
                         dpg.add_spacer(height=3)
                         dpg.add_button(
                             label="Nueva sesion", width=-1,
-                            callback=lambda: (
-                                export_session_log(silent=True),
-                                state.update({"messages": [], "character": {},
-                                              "session_log": [], "phase": "idle",
-                                              "last_dice_result": None,
-                                              "session_number": state.get("session_number", 1) + 1}),
-                                dpg.delete_item("chat_scroll", children_only=True),
-                                refresh_character_panel(),
-                                refresh_log(),
-                                refresh_estado_panel(),
-                            ),
+                            callback=lambda: new_session_callback(),
                         )
 
                     with dpg.tab(label="Estado"):
