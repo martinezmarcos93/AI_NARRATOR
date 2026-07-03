@@ -1169,9 +1169,9 @@ def build_gui():
                         dpg.add_button(label="Aplicar cambios", width=-1,
                                        callback=apply_character_edits)
 
-                    with dpg.tab(label="Dados"):
+                    with dpg.tab(label="Dados") as tab_dados:
                         dpg.add_spacer(height=4)
-                        build_dice_panel(dpg.last_item())
+                        build_dice_panel(tab_dados)
 
             dpg.add_spacer(width=4)
 
