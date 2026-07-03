@@ -53,6 +53,16 @@ class StateManager:
             self.data = merged
             return True
         except Exception as e:
+            # Estado corrupto: backup antes de que el próximo save() lo pise.
+            logger.error(f"estado_campana.yaml corrupto o ilegible: {e}", exc_info=True)
+            backup = self.path.with_name(
+                f"{self.path.stem}.corrupto-{datetime.now():%Y%m%d-%H%M%S}{self.path.suffix}"
+            )
+            try:
+                self.path.rename(backup)
+                logger.error(f"Backup del estado corrupto guardado en: {backup}")
+            except OSError as be:
+                logger.error(f"No pude hacer backup del estado corrupto: {be}")
             return False
 
     def save(self):
