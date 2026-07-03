@@ -6,6 +6,7 @@ Es Python puro: no hace llamadas al LLM, solo decide QUÉ contexto armar y QUIÉ
 import yaml
 from narrator.logger import logger
 from pathlib import Path
+from narrator import resolve_path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
 from narrator.core.state_manager import StateManager
@@ -18,9 +19,10 @@ class Orchestrator:
     def __init__(self, config_path: str = "./config/config.yaml"):
         self.config = self._load_config(config_path)
 
-        systems_path = self.config.get("systems_path", "data/systems")
-        vault_path = self.config.get("vault", {}).get("path", "./vault")
-        state_path = self.config.get("estado", {}).get("path", "./estado_campana.yaml")
+        # Rutas del config ancladas a la raíz del proyecto (no al CWD)
+        systems_path = str(resolve_path(self.config.get("systems_path", "data/systems")))
+        vault_path = str(resolve_path(self.config.get("vault", {}).get("path", "vault")))
+        state_path = str(resolve_path(self.config.get("estado", {}).get("path", "estado_campana.yaml")))
 
         self.builder = PromptBuilder(systems_path=systems_path)
         self.retriever = VaultRetriever(vault_path=vault_path)

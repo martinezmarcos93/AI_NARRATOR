@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 
-from narrator import PROJECT_ROOT
+from narrator import PROJECT_ROOT, resolve_path
 from narrator.core.llm_client import LLMClient
 from narrator.core.session_manager import SessionManager
 session_manager = SessionManager()
@@ -816,9 +816,7 @@ def export_session_log(silent: bool = False) -> str:
     export_path.write_text("\n".join(lines), encoding="utf-8")
 
     if _AGENT_MODE and _orchestrator:
-        config = _orchestrator.config
-        vault_path = Path(config.get("vault", {}).get("path", "vault"))
-        sessions_dir = vault_path / "Sesiones"
+        sessions_dir = _orchestrator.retriever.vault_path / "Sesiones"
         if sessions_dir.exists():
             import shutil
             shutil.copy(export_path, sessions_dir / filename)
@@ -1007,8 +1005,11 @@ def build_vault_callback():
             extractor = ExtractorAgent(llm=llm, builder=pb)
 
             config = _orchestrator.config if _orchestrator else {}
-            vault_path = config.get("vault", {}).get("path", "vault")
-            template_path = config.get("vault", {}).get("template_path", "data/vault_template")
+            # Rutas ya resueltas contra PROJECT_ROOT
+            vault_path = str(_orchestrator.retriever.vault_path) if _orchestrator \
+                else str(resolve_path("vault"))
+            template_path = str(resolve_path(
+                config.get("vault", {}).get("template_path", "data/vault_template")))
 
             result = extractor.run(
                 pdf_text=state["manual_text"],
@@ -1378,7 +1379,8 @@ def _init_vault_writer():
         return
     try:
         config = _orchestrator.config if _orchestrator else {}
-        vault_path = config.get("vault", {}).get("path", "vault")
+        vault_path = str(_orchestrator.retriever.vault_path) if _orchestrator \
+            else str(resolve_path("vault"))
         live = config.get("vault", {}).get("live_updates", True)
         if not live:
             return
