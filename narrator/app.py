@@ -1243,7 +1243,9 @@ def build_gui():
                     send_btn = dpg.add_button(
                         tag="send_btn", label="Enviar",
                         width=84, height=46,
-                        callback=send_message,
+                        # lambda sin args: DPG pasa sender al primer parámetro
+                        # de la callback → send_message recibiría "send_btn".
+                        callback=lambda: send_message(),
                     )
                     dpg.bind_item_theme(send_btn, state["send_theme"])
 
@@ -1264,7 +1266,7 @@ def build_gui():
                             dim_text("Sin eventos.")
                         dpg.add_spacer(height=4)
                         dpg.add_button(label="Exportar log", width=-1,
-                                       callback=export_session_log)
+                                       callback=lambda: export_session_log())
                         dpg.add_spacer(height=3)
                         dpg.add_button(
                             label="Limpiar log", width=-1,
