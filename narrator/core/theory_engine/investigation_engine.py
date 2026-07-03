@@ -3,12 +3,9 @@
 import json
 from narrator.logger import logger
 import yaml
-import logging
 import random
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any
-
-logger = logging.getLogger(__name__)
 
 class InvestigationEngine:
     """
@@ -74,7 +71,7 @@ class InvestigationEngine:
         if state_file.exists():
             try:
                 with open(state_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)  # Nota: Necesitas importar json en la cabecera
+                    return json.load(f)
             except Exception as e:
                 logger.error(f"Error al leer investigation_state.json: {e}")
                 return self._initialize_new_state()
@@ -153,7 +150,6 @@ class InvestigationEngine:
         """Guarda el estado de la investigación en el Vault."""
         state_file = self.vault_path / "investigation_state.json"
         try:
-            import json
             with open(state_file, 'w', encoding='utf-8') as f:
                 json.dump(self.investigation_state, f, indent=2, ensure_ascii=False)
         except Exception as e:

@@ -231,7 +231,7 @@ def _build_legacy_context() -> str:
 # ─────────────────────────────────────────────
 #  DICE ENGINE
 # ─────────────────────────────────────────────
-DICE_TYPES = [4, 6, 8, 10, 12, 20]
+DICE_TYPES = [4, 6, 8, 10, 12, 20, 100]  # D100: CoC 7e es percentil
 
 def roll_dice(n: int, sides: int) -> list[int]:
     return [random.randint(1, sides) for _ in range(n)]

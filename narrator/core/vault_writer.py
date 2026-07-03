@@ -93,6 +93,13 @@ class VaultWriter:
         with open(self._session_file, "a", encoding="utf-8") as f:
             f.write(f"> ⚡ [{timestamp}] {event_text}\n\n")
 
+    def _session_ref(self, session_number: int) -> str:
+        """Backlink al archivo real de sesión. El nombre incluye la fecha
+        (Sesion_01_2026-05-11.md): un [[Sesion_01]] a secas queda roto."""
+        if self._session_file:
+            return f"[[{self._session_file.stem}]]"
+        return f"[[Sesion_{session_number:02d}]]"
+
     # ── Actualización de notas de NPCs ────────────────────────
     def _detect_mentioned_entities(self, text: str, cache: dict) -> list[Path]:
         """
@@ -140,7 +147,7 @@ class VaultWriter:
         """
         mentioned = self._detect_mentioned_entities(narrator_text, self._npc_cache)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        session_ref = f"[[Sesion_{session_number:02d}]]"
+        session_ref = self._session_ref(session_number)
 
         for npc_path in mentioned:
             # Extraer la primera oración del texto donde se menciona al NPC
@@ -165,7 +172,7 @@ class VaultWriter:
             return
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        session_ref = f"[[Sesion_{session_number:02d}]]"
+        session_ref = self._session_ref(session_number)
 
         for loc_path in mentioned[:2]:  # máximo 2 locaciones por respuesta
             note = f"- {session_ref} ({timestamp}): escena activa"

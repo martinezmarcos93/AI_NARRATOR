@@ -2,14 +2,11 @@
 
 import yaml
 from narrator.logger import logger
-import logging
 import random
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from collections import deque
 from datetime import datetime, timedelta
-
-logger = logging.getLogger(__name__)
 
 class PacingToneAgent:
     """

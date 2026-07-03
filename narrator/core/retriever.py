@@ -213,8 +213,10 @@ class VaultRetriever:
         for f in fronts:
             m = f["meta"]
             body = f["body"]
-            checked = len(re.findall(r"\[x\]", body, re.IGNORECASE))
-            total = len(re.findall(r"\[.\]", body))
+            # Solo casillas de checklist reales: \[.\] contaba falsos ticks
+            # con [1], [a], etc. en el cuerpo del frente.
+            checked = len(re.findall(r"\[[xX]\]", body))
+            total = checked + len(re.findall(r"\[ \]", body))
             result.append({
                 "nombre": m.get("nombre", "?"),
                 "estado": m.get("estado", "latente"),

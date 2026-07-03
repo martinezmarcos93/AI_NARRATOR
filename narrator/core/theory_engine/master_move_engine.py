@@ -3,13 +3,8 @@
 import yaml
 from narrator.logger import logger
 import random
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional
-
-# Configurar logging simple
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class MasterMoveEngine:
     """
