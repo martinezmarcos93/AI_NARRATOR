@@ -84,19 +84,32 @@ class LLMClient:
                 stream=True,
                 timeout=self.timeout,
             ) as resp:
+                if resp.status_code != 200:
+                    # p.ej. 404 si el modelo no existe en Ollama
+                    try:
+                        err = resp.json().get("error", resp.text[:200])
+                    except Exception:
+                        err = resp.text[:200]
+                    on_done(f"[Error LLM ({resp.status_code}): {err}]")
+                    return
                 full = ""
                 for line in resp.iter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            chunk = data.get("message", {}).get("content", "")
-                            if chunk:
-                                full += chunk
-                                on_chunk(chunk)
-                            if data.get("done"):
-                                break
-                        except Exception as e:
-                            logger.error(f"Error inesperado: {e}", exc_info=True)
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Línea de stream no parseable: {e}")
+                        continue
+                    if data.get("error"):
+                        on_done(f"[Error LLM: {data['error']}]")
+                        return
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        full += chunk
+                        on_chunk(chunk)
+                    if data.get("done"):
+                        break
                 on_done(full)
         except Exception as e:
             on_done(f"[Error de conexión: {e}]")

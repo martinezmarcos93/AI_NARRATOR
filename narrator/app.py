@@ -332,6 +332,24 @@ def finish_streaming(full_text: str):
     _is_streaming = False
     _streaming_token = ""
 
+    # Errores del LLM ([Error LLM...] / [Error de conexión...]) NO van al
+    # historial: se muestran como mensaje de sistema y se corta el pipeline.
+    if full_text.startswith("[Error") or not full_text.strip():
+        msg = full_text if full_text.strip() else "[Error LLM: respuesta vacía del modelo]"
+
+        def _ui_error():
+            try:
+                dpg.set_value("streaming_label", "")
+                dpg.configure_item("streaming_group", show=False)
+            except Exception as e:
+                logger.error(f"Error ocultando streaming: {e}", exc_info=True)
+            append_to_chat("system", f"⚠ {msg}")
+            dpg.enable_item("send_btn")
+            dpg.enable_item("user_input")
+
+        _ui(_ui_error)
+        return
+
     # Procesamiento sin DPG — hilo worker
     with state_lock:
         state["messages"].append({"role": "assistant", "content": full_text})
