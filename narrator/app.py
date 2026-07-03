@@ -274,16 +274,18 @@ def add_spacer(h=8):
     dpg.add_spacer(height=h)
 
 def section_label(text, parent=None):
-    kwargs = {"label": text, "color": list(C_GOLD)}
+    # OJO: en add_text el texto va como primer posicional (default_value);
+    # label= NO se renderiza en mvText.
+    kwargs = {"color": list(C_GOLD)}
     if parent:
         kwargs["parent"] = parent
-    dpg.add_text(**kwargs)
+    dpg.add_text(text, **kwargs)
 
 def dim_text(text, parent=None):
-    kwargs = {"label": text, "color": list(C_TEXT_DIM)}
+    kwargs = {"color": list(C_TEXT_DIM)}
     if parent:
         kwargs["parent"] = parent
-    dpg.add_text(**kwargs)
+    dpg.add_text(text, **kwargs)
 
 # ─────────────────────────────────────────────
 #  GUI — CHAT
