@@ -1019,6 +1019,10 @@ def build_vault_callback():
                 template_path=template_path,
                 on_progress=on_progress,
             )
+            # El retriever cacheó un índice vacío antes de que existiera
+            # el vault: sin esto, la búsqueda semántica queda muerta
+            # hasta reiniciar la app.
+            _orchestrator.retriever.invalidate_cache()
             summary = (
                 f"Vault construido: {result['npcs']} NPCs, "
                 f"{result['locaciones']} locaciones, "

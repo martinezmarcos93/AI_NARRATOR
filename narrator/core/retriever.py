@@ -46,6 +46,13 @@ class VaultRetriever:
             self._index = self._embedder.load_index(self.vault_path)
         return self._index
 
+    def invalidate_cache(self):
+        """Fuerza recarga del índice semántico y re-chequeo de Ollama.
+        Llamar tras construir/reconstruir el vault: el índice cacheado
+        antes de la construcción quedaba vacío hasta reiniciar la app."""
+        self._index = None
+        self._embedder._available = None
+
     # ── Por tipo ──────────────────────────────────────────────
     def get_by_type(self, tipo: str, max_files: int = 10) -> list[dict]:
         """Devuelve todos los archivos del vault con el tipo dado (npc, locacion, frente…)"""
