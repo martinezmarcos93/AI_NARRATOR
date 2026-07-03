@@ -1420,6 +1420,21 @@ def main():
 
     build_gui()
 
+    # Re-render de la sesión restaurada: antes el estado se cargaba pero la
+    # GUI quedaba vacía (chat en blanco, "Sin personaje") mientras el LLM
+    # "recordaba" el historial completo.
+    if state["messages"]:
+        for m in state["messages"]:
+            if m.get("role") in ("user", "assistant"):
+                append_to_chat(m["role"], m.get("content", ""))
+        append_to_chat("system", f"Sesión #{state.get('session_number', 1)} restaurada "
+                                 f"({len(state['messages'])} mensajes).")
+    if state["character"]:
+        refresh_character_panel()
+        refresh_character_editor()
+    if state["session_log"]:
+        refresh_log()
+
     while dpg.is_dearpygui_running():
         while True:
             try:
