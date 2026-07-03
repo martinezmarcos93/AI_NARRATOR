@@ -177,7 +177,9 @@ def _proc_done(summary: str):
 # ─────────────────────────────────────────────
 #  PDF PROCESSING
 # ─────────────────────────────────────────────
-def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
+def extract_pdf_text(path: str, max_chars: int = 12000) -> str | None:
+    """Extrae texto del PDF. Devuelve None si falla (no un string de error,
+    que antes se trataba como contenido del manual y reportaba éxito)."""
     try:
         doc = fitz.open(path)
         text = ""
@@ -188,7 +190,8 @@ def extract_pdf_text(path: str, max_chars: int = 12000) -> str:
         doc.close()
         return text[:max_chars]
     except Exception as e:
-        return f"Error leyendo PDF: {e}"
+        logger.error(f"Error leyendo PDF {path}: {e}", exc_info=True)
+        return None
 
 def detect_system(text: str) -> tuple[str, str]:
     """Detecta el sistema de juego. Devuelve (display_name, slug)."""
@@ -737,6 +740,10 @@ def add_supplement_callback(sender, app_data):
 
     def process():
         text = extract_pdf_text(path, max_chars=8000)
+        if not text:
+            _ui(lambda n=name: append_to_chat(
+                "system", f"⚠ No pude leer el suplemento: {n}. Revisá logs."))
+            return
         separator = f"\n\n{'='*60}\n=== SUPLEMENTO: {name} ===\n{'='*60}\n\n"
         with state_lock:
             state["manual_text"] += separator + text
@@ -924,6 +931,12 @@ def load_pdf_callback(sender, app_data):
 
     def process():
         text = extract_pdf_text(path)
+        if not text:
+            _ui(lambda n=name: (
+                dpg.set_value("manual_status", f"✗ Error leyendo {n}"),
+                append_to_chat("system", f"⚠ No pude leer el PDF: {n}. Revisá logs."),
+            ))
+            return
         system_name, system_slug = detect_system(text)
         with state_lock:
             state["manual_text"] = text
