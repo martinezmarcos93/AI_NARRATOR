@@ -104,7 +104,9 @@ class Orchestrator:
             if c.get("llenos", 0) >= c.get("segmentos", 6) - 1
         )
         return {
-            "tirada_resultado": app_state.get("last_dice_result"),
+            # Banda '10+'/'7-9'/'6-' calculada en do_roll (app.py). NO usar
+            # last_dice_result: se consume antes de armar el contexto.
+            "tirada_resultado": app_state.get("tirada_banda"),
             "tiempo_sin_accion": 0,
             "frente_activo": bool(active_fronts),
             "jugadores_bloqueados": app_state.get("jugadores_bloqueados", False),

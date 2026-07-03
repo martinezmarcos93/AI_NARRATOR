@@ -439,17 +439,6 @@ def send_message(user_text: str = None):
         state["ultimo_evento"] = event_type
         _orchestrator.record_event(event_type, intensity)
 
-    if _AGENT_MODE and _orchestrator:
-        try:
-            system_content = _orchestrator.get_context_for_phase(state)
-        except Exception as _e:
-            print(f"⚠ Error en orquestador, usando modo legacy: {_e}")
-            system_content = _build_legacy_context()
-    else:
-        system_content = _build_legacy_context()
-
-    messages_to_send = [{"role": "system", "content": system_content}] + state["messages"]
-
     _is_streaming = True
     _streaming_token = ""
     try:
@@ -462,6 +451,22 @@ def send_message(user_text: str = None):
         logger.error(f"Error mostrando el grupo de streaming: {e}", exc_info=True)
 
     def run():
+        # Construcción del contexto EN EL WORKER: lee todo el vault y puede
+        # hacer un POST de embeddings a Ollama — antes congelaba la GUI.
+        if _AGENT_MODE and _orchestrator:
+            try:
+                system_content = _orchestrator.get_context_for_phase(state)
+            except Exception as e:
+                logger.error(f"Error en orquestador, usando modo legacy: {e}", exc_info=True)
+                system_content = _build_legacy_context()
+        else:
+            system_content = _build_legacy_context()
+
+        with state_lock:
+            # La banda de tirada ya fue consumida por el contexto de este turno.
+            state.pop("tirada_banda", None)
+            messages_to_send = [{"role": "system", "content": system_content}] + list(state["messages"])
+
         LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
 
     threading.Thread(target=run, daemon=True).start()
@@ -481,6 +486,10 @@ def do_roll(sides: int):
     result_str = format_roll_result(rolls, sides)
 
     state["last_dice_result"] = f"{n}D{sides}: {result_str}"
+    # Banda PbtA-like para el MasterMoveEngine (heurística por ratio del máximo):
+    # antes el engine recibía last_dice_result ya consumido (siempre None).
+    ratio = total / (n * sides)
+    state["tirada_banda"] = "10+" if ratio >= 0.8 else ("7-9" if ratio >= 0.5 else "6-")
 
     color = list(C_RED_BRIGHT) if total == sides * n else (
         list(C_GOLD) if total >= sides * n * 0.75 else list(C_TEXT)
