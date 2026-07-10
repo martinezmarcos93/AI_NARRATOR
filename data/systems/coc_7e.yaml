@@ -141,3 +141,23 @@ character_sheet_schema:
         fields:
           - {key: medicina,       label: Medicina (%),       type: int}
           - {key: primeros_auxilios, label: Primeros Auxilios (%), type: int}
+
+# --- Resolución mecánica (Rule Arbiter) ---
+resolution:
+  mecanica: "percentil"
+  # Divisor sobre el valor de habilidad: normal = valor, dificil = mitad, extremo = quinto
+  dificultades: {normal: 1, dificil: 2, extremo: 5}
+  dificultad_default: "normal"
+  keywords_dificultad:
+    dificil: ["difícil", "dificil", "duro", "arriesgado", "complicado"]
+    extremo: ["extremo", "extrema", "casi imposible", "desesperado"]
+  atributo_default: "destreza"
+  acciones:
+    - {keywords: ["ataco", "golpeo", "peleo"], atributo: "pelear", etiqueta: "Pelear"}
+    - {keywords: ["disparo", "apunto"], atributo: "armas_de_fuego", etiqueta: "Armas de Fuego"}
+    - {keywords: ["esquivo", "me aparto"], atributo: "esquivar", etiqueta: "Esquivar"}
+    - {keywords: ["sigilo", "me escondo", "silencioso"], atributo: "sigilo", etiqueta: "Sigilo"}
+    - {keywords: ["percibo", "observo", "escucho", "busco", "descubro"], atributo: "descubrir", etiqueta: "Descubrir"}
+    - {keywords: ["investigo", "biblioteca", "archivo", "consulto"], atributo: "buscar_libros", etiqueta: "Buscar Libros"}
+    - {keywords: ["persuado", "convenzo", "negocio"], atributo: "persuasion", etiqueta: "Persuasión"}
+    - {keywords: ["psicologia", "intuyo", "leo a"], atributo: "psicologia", etiqueta: "Psicología"}

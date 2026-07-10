@@ -159,3 +159,20 @@ character_sheet_schema:
         fields:
           - {key: instinto,       label: Instinto Bárbaro,   type: string}
           - {key: furias_dia,     label: Furias por día,     type: int}
+
+# --- Resolución mecánica (Rule Arbiter) ---
+resolution:
+  mecanica: "d20_vs_dc"
+  dificultades: {facil: 10, normal: 15, dificil: 20}
+  dificultad_default: "normal"
+  keywords_dificultad:
+    facil: ["fácil", "facil", "sencillo", "trivial", "rutinario"]
+    dificil: ["difícil", "dificil", "arriesgado", "complicado", "casi imposible", "extremo"]
+  atributo_default: "destreza"
+  acciones:
+    - {keywords: ["ataco", "golpeo", "peleo", "embisto", "derribo", "fuerzo"], atributo: "fuerza", etiqueta: "Ataque / Fuerza"}
+    - {keywords: ["disparo", "apunto", "sigilo", "me escondo", "esquivo", "acrobacia", "trepo", "robo"], atributo: "destreza", etiqueta: "Destreza"}
+    - {keywords: ["resisto", "aguanto", "soporto", "toxina", "veneno"], atributo: "constitucion", etiqueta: "Constitución"}
+    - {keywords: ["investigo", "examino", "analizo", "recuerdo", "arcanos", "descifro"], atributo: "inteligencia", etiqueta: "Inteligencia"}
+    - {keywords: ["percibo", "observo", "escucho", "busco", "rastreo", "medicina", "intuyo"], atributo: "sabiduria", etiqueta: "Sabiduría"}
+    - {keywords: ["persuado", "convenzo", "intimido", "engaño", "negocio", "seduzco", "actúo"], atributo: "carisma", etiqueta: "Carisma"}

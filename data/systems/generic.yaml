@@ -99,3 +99,9 @@ character_sheet_schema:
         - {key: hp,               label: Salud,              type: string}
         - {key: recurso,          label: Recurso principal,  type: string}
         - {key: habilidades,      label: Habilidades,        type: list}
+
+# --- Resolución mecánica (Rule Arbiter) ---
+resolution:
+  mecanica: "ratio"
+  # Bandas PbtA-like por ratio del máximo posible de la tirada
+  bandas: {exito: 0.8, parcial: 0.5}

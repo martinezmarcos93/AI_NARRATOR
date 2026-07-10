@@ -73,12 +73,23 @@ class PromptBuilder:
         master_move: dict = None,
         world_status: str = "",
         investigation_hint: str = "",
+        mechanical_resolution: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
         voc = sys.get("vocabulario", {})
 
         sections = [base_prompt, NARRATIVE_PRINCIPLES, DICE_RESOLUTION_RULES]
+
+        if mechanical_resolution:
+            # Veredicto del Rule Arbiter: la matemática ya está resuelta en
+            # Python; el LLM solo narra el resultado, nunca lo recalcula.
+            sections.append(
+                "RESOLUCIÓN MECÁNICA DE LA ÚLTIMA TIRADA "
+                "(calculada por el sistema — NO la recalcules ni la contradigas; "
+                "narrá exactamente este resultado):\n"
+                f"{mechanical_resolution}"
+            )
 
         if voc:
             voc_lines = []

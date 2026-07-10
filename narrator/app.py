@@ -30,16 +30,19 @@ try:
     from narrator.agents.narrator_agent import NarratorAgent
     from narrator.agents.world_agent import WorldAgent
     from narrator.core.prompt_builder import PromptBuilder
+    from narrator.core.rule_arbiter import RuleArbiter
     from narrator.core.vault_writer import VaultWriter
 
     _CONFIG_PATH = str(PROJECT_ROOT / "config" / "config.yaml")
     _orchestrator = Orchestrator(config_path=_CONFIG_PATH)
     _narrator_agent = NarratorAgent()
+    _rule_arbiter = RuleArbiter(builder=_orchestrator.builder)
     _vault_writer: "VaultWriter | None" = None
     _AGENT_MODE = True
 except Exception as _agent_err:
     _orchestrator = None
     _narrator_agent = None
+    _rule_arbiter = None
     _vault_writer = None
     _AGENT_MODE = False
     print(f"⚠ Modo legacy (sin agentes): {_agent_err}")
@@ -230,6 +233,12 @@ def _build_legacy_context() -> str:
         content += f"\n\n=== MANUAL: {state['manual_name']} ===\n{state['manual_text'][:6000]}"
     if state["character"]:
         content += f"\n\n=== PERSONAJE ===\n{json.dumps(state['character'], ensure_ascii=False, indent=2)}"
+    if state.get("resolucion_mecanica"):
+        content += (
+            "\n\n=== RESOLUCIÓN MECÁNICA DE LA ÚLTIMA TIRADA ==="
+            "\n(Calculada por el sistema. NO la recalcules ni la contradigas; narrá este resultado.)"
+            f"\n{state['resolucion_mecanica']}"
+        )
     return content
 
 # ─────────────────────────────────────────────
@@ -490,6 +499,25 @@ def send_message(user_text: str = None):
         user_text = f"{user_text}\n\n[RESULTADO DE DADOS: {state['last_dice_result']}]"
         state["last_dice_result"] = None
 
+        # Rule Arbiter: resolver la tirada en Python puro contra la planilla.
+        # El contexto es el pedido del narrador + la acción del jugador.
+        pending = state.pop("pending_roll", None)
+        if pending and _rule_arbiter is not None:
+            last_narrator = next(
+                (m["content"] for m in reversed(state["messages"])
+                 if m.get("role") == "assistant"), "")
+            resultado = _rule_arbiter.resolve(
+                action_text=f"{last_narrator}\n{user_text}",
+                character=state.get("character") or {},
+                system_slug=state.get("system_slug", "generic"),
+                rolls=pending["rolls"],
+                sides=pending["sides"],
+            )
+            if resultado:
+                state["resolucion_mecanica"] = resultado["detalle"]
+                state["tirada_banda"] = resultado["banda"]
+                append_to_chat("system", f"⚖ {resultado['detalle']}")
+
     state["messages"].append({"role": "user", "content": user_text})
     append_to_chat("user", user_text)
 
@@ -522,8 +550,9 @@ def send_message(user_text: str = None):
             system_content = _build_legacy_context()
 
         with state_lock:
-            # La banda de tirada ya fue consumida por el contexto de este turno.
+            # Banda y resolución mecánica ya consumidas por el contexto del turno.
             state.pop("tirada_banda", None)
+            state.pop("resolucion_mecanica", None)
             messages_to_send = [{"role": "system", "content": system_content}] + list(state["messages"])
 
         LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
@@ -545,8 +574,9 @@ def do_roll(sides: int):
     result_str = format_roll_result(rolls, sides)
 
     state["last_dice_result"] = f"{n}D{sides}: {result_str}"
-    # Banda PbtA-like para el MasterMoveEngine (heurística por ratio del máximo):
-    # antes el engine recibía last_dice_result ya consumido (siempre None).
+    # Tirada cruda para el Rule Arbiter: se resuelve mecánicamente al enviarla.
+    state["pending_roll"] = {"rolls": rolls, "sides": sides}
+    # Banda PbtA-like heurística (fallback si el arbiter no aplica):
     ratio = total / (n * sides)
     state["tirada_banda"] = "10+" if ratio >= 0.8 else ("7-9" if ratio >= 0.5 else "6-")
 
