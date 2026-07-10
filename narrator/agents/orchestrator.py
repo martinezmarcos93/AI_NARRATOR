@@ -177,6 +177,7 @@ class Orchestrator:
             master_move=master_move,
             world_status=world_status,
             investigation_hint=investigation_hint,
+            mechanical_resolution=app_state.get("resolucion_mecanica", ""),
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

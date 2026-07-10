@@ -192,3 +192,22 @@ character_sheet_schema:
           - {key: animalismo,     label: Animalismo,         type: int, min: 0, max: 5}
           - {key: auspex,         label: Auspex,             type: int, min: 0, max: 5}
           - {key: vicisitud,      label: Vicisitud,          type: int, min: 0, max: 5}
+
+# --- Resolución mecánica (Rule Arbiter) ---
+resolution:
+  mecanica: "pool_d10"
+  dificultades: {facil: 5, normal: 6, dificil: 8}
+  dificultad_default: "normal"
+  keywords_dificultad:
+    facil: ["fácil", "facil", "sencillo", "trivial", "rutinario"]
+    dificil: ["difícil", "dificil", "arriesgado", "complicado", "casi imposible", "extremo"]
+  atributo_default: "destreza"
+  acciones:
+    - {keywords: ["ataco", "golpeo", "peleo", "embisto", "derribo", "fuerzo"], atributo: "fuerza", etiqueta: "Fuerza"}
+    - {keywords: ["disparo", "apunto", "sigilo", "me escondo", "esquivo", "trepo", "robo"], atributo: "destreza", etiqueta: "Destreza"}
+    - {keywords: ["resisto", "aguanto", "soporto"], atributo: "resistencia", etiqueta: "Resistencia"}
+    - {keywords: ["persuado", "convenzo", "seduzco", "lidero", "presencia"], atributo: "carisma", etiqueta: "Carisma"}
+    - {keywords: ["engaño", "manipulo", "intimido", "negocio"], atributo: "manipulacion", etiqueta: "Manipulación"}
+    - {keywords: ["percibo", "observo", "escucho", "busco", "rastreo", "auspex"], atributo: "percepcion", etiqueta: "Percepción"}
+    - {keywords: ["investigo", "examino", "analizo", "recuerdo", "descifro"], atributo: "inteligencia", etiqueta: "Inteligencia"}
+    - {keywords: ["reacciono", "improviso", "astucia"], atributo: "astucia", etiqueta: "Astucia"}
