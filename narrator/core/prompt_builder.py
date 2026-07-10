@@ -115,7 +115,11 @@ class PromptBuilder:
             sections.append(f"FRENTES ACTIVOS:\n{active_fronts}")
 
         if active_npcs:
-            sections.append(f"NPCS EN EL MUNDO:\n{active_npcs}")
+            sections.append(
+                "NPCS EN EL MUNDO (si un NPC tiene 'psique', respetala en sus "
+                "diálogos y decisiones — es su personalidad):\n"
+                f"{active_npcs}"
+            )
 
         if world_status:
             sections.append(f"ESTADO DEL MUNDO:\n{world_status}")

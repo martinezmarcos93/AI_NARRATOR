@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from narrator.core.llm_client import LLMClient
+from narrator.core.npc_psyche import validate_psyche
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.embedder import Embedder
 
@@ -50,6 +51,13 @@ def _npc_frontmatter(data: dict, system_slug: str) -> str:
         lines.append(f'rol: "{data["rol"]}"')
     if data.get("amenaza"):
         lines.append(f'amenaza: {data["amenaza"]}')
+    # Psicología (C1): arquetipo dominante + rasgos dimensionales validados
+    arquetipo, rasgos = validate_psyche(data.get("arquetipo"), data.get("rasgos"))
+    if arquetipo:
+        lines.append(f'arquetipo: "{arquetipo}"')
+    if rasgos:
+        lines.append("rasgos:")
+        lines += [f"  {k}: {v}" for k, v in rasgos.items()]
     lines.append(f"tags: {json.dumps(tags, ensure_ascii=False)}")
     lines.append("---")
     return "\n".join(lines)
@@ -123,6 +131,8 @@ Para cada uno, devolvé un JSON con estos campos (usá null si no aparece):
 - faccion (string, organización a la que pertenece)
 - amenaza (string: "alta", "media" o "baja")
 - descripcion (string, 2-3 oraciones de descripción)
+- arquetipo (string, UNO de: self, persona, sombra, anima_animus, heroe, sabio, trickster, madre, padre, nino_divino, gobernante, rebelde — el que mejor capture su personalidad)
+- rasgos (objeto con valores 0.0 a 1.0 para: extraversion, amabilidad, neuroticismo, impulsividad, agresividad, empatia)
 
 Devolvé SOLO un array JSON válido. Sin texto adicional. Sin comillas extras. Sin markdown.
 
