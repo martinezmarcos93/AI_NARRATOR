@@ -1,6 +1,6 @@
 [project]
 name = "ai-narrator"
-version = "0.5.0"
+version = "0.6.0"
 description = "Motor de rol con agentes especializados y LLMs locales via Ollama"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -4,6 +4,21 @@ Todas las modificaciones relevantes de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/);
 versionado [semántico](https://semver.org/lang/es/).
 
+## [0.6.0] — 2026-07-10
+
+### Añadido
+- **Psicología de NPCs** (`narrator/core/npc_psyche.py`): arquetipo
+  jungiano dominante + rasgos dimensionales 0–1 en el frontmatter de
+  cada NPC (asignados por el extractor, editables en Obsidian); los NPCs
+  en escena llevan una línea conductual "psique:" al prompt del narrador.
+- **Sistema de Escenas** (`narrator/core/scene_manager.py`): escenas en
+  el vault (`tipo: escena`) con condiciones de desbloqueo determinísticas
+  (keywords del jugador, flags, reloj lleno); ciclo bloqueada →
+  disponible → jugada con flags otorgados; visibles en el tab Estado.
+- **Fronts reactivos**: las acciones del jugador aceleran en vivo los
+  relojes de los frentes sensibles (`reactivo_a`); un reloj llenado en
+  vivo dispara un EVENTO FORZOSO que interrumpe la escena.
+
 ## [0.5.0] — 2026-07-10
 
 ### Añadido
