@@ -146,6 +146,7 @@ def _proc_start(title: str):
         dpg.delete_item("proc_log_area", children_only=True)
         dpg.configure_item("proc_bar_group", show=True)
         dpg.configure_item("proc_detail_window", show=True)
+        _relayout()   # la barra ocupa alto: reacomodar para no tapar el input
     except Exception as e:
         logger.error(f"Error inesperado: {e}", exc_info=True)
 
@@ -165,6 +166,7 @@ def _proc_done(summary: str):
     try:
         dpg.configure_item("proc_bar_group", show=False)
         dpg.configure_item("proc_detail_window", show=False)
+        _relayout()
     except Exception as e:
         logger.error(f"Error inesperado: {e}", exc_info=True)
     append_to_chat("system", summary)
@@ -1137,6 +1139,65 @@ def apply_theme():
     state["action_theme"] = action_theme
 
 # ─────────────────────────────────────────────
+#  GUI — LAYOUT RESPONSIVE
+# ─────────────────────────────────────────────
+COL_L = 195   # ancho columna izquierda (personaje + dados)
+COL_R = 190   # ancho columna derecha (log + estado)
+
+def _rewrap_texts(item, wrap_w: int):
+    """Reajusta el wrap de todos los textos ya renderizados en el chat."""
+    for child in dpg.get_item_children(item, 1) or []:
+        if dpg.get_item_type(child) == "mvAppItemType::mvText":
+            if dpg.get_item_configuration(child).get("wrap", -1) not in (-1, None):
+                dpg.configure_item(child, wrap=wrap_w)
+        else:
+            _rewrap_texts(child, wrap_w)
+
+def _relayout():
+    """Reajusta el layout al tamaño REAL del viewport.
+
+    Se llama al construir la GUI, en cada resize del viewport y al
+    mostrar/ocultar la barra de progreso. Garantiza que el input del chat
+    y todos los botones queden siempre visibles (antes las alturas se
+    calculaban una sola vez al maximizar y los paneles desbordaban).
+    """
+    global _CHAT_WRAP_W
+    try:
+        w = dpg.get_viewport_client_width()
+        h = dpg.get_viewport_client_height()
+        chat_w = max(320, w - COL_L - COL_R - 20)
+        panel_h = max(300, h - 68)
+        _CHAT_WRAP_W = chat_w - 32
+
+        dpg.configure_item("left_panel", height=panel_h)
+        dpg.configure_item("center_panel", width=chat_w, height=panel_h)
+        dpg.configure_item("right_panel", height=panel_h)
+
+        # Centro: reservar alto fijo para acciones rápidas + input (+ barra
+        # de progreso si está visible) y darle el resto al scroll del chat.
+        proc_visible = (dpg.does_item_exist("proc_bar_group")
+                        and dpg.is_item_shown("proc_bar_group"))
+        chat_h = max(120, panel_h - 132 - (44 if proc_visible else 0))
+        dpg.configure_item("chat_scroll", height=chat_h)
+        dpg.configure_item("user_input", width=chat_w - 92)
+        btn_w = max(80, (chat_w - 12) // len(QUICK_ACTIONS))
+        for i in range(len(QUICK_ACTIONS)):
+            if dpg.does_item_exist(f"qa_btn_{i}"):
+                dpg.configure_item(f"qa_btn_{i}", width=btn_w)
+
+        # Laterales: reservar el alto de sus botones inferiores.
+        dpg.configure_item("char_content", height=max(80, panel_h - 292))
+        dpg.configure_item("log_content", height=max(80, panel_h - 215))
+        dpg.configure_item("estado_content", height=max(80, panel_h - 188))
+
+        # Textos ya renderizados: reajustar wrap al nuevo ancho.
+        _rewrap_texts("chat_scroll", _CHAT_WRAP_W)
+        if dpg.does_item_exist("streaming_label"):
+            dpg.configure_item("streaming_label", wrap=_CHAT_WRAP_W)
+    except Exception as e:
+        logger.error(f"Error en relayout: {e}", exc_info=True)
+
+# ─────────────────────────────────────────────
 #  GUI — MAIN WINDOW
 # ─────────────────────────────────────────────
 def build_gui():
@@ -1152,11 +1213,11 @@ def build_gui():
     W = dpg.get_viewport_client_width()
     H = dpg.get_viewport_client_height()
 
-    COL_L   = 195
-    COL_R   = 190
-    CHAT_W  = W - COL_L - COL_R - 20
+    # Tamaños iniciales; _relayout() los recalcula al final del build
+    # y en cada resize del viewport.
+    CHAT_W  = max(320, W - COL_L - COL_R - 20)
     _CHAT_WRAP_W = CHAT_W - 32
-    PANEL_H = H - 68
+    PANEL_H = max(300, H - 68)
 
     # ── File dialogs ──────────────────────────────────────────
     dpg.add_file_dialog(
@@ -1268,13 +1329,15 @@ def build_gui():
             dpg.add_spacer(width=4)
 
             # ══ CENTRO: chat ══
-            with dpg.child_window(width=CHAT_W, height=PANEL_H, border=True):
+            with dpg.child_window(width=CHAT_W, height=PANEL_H, border=True,
+                                  tag="center_panel"):
 
                 # Quick actions — una sola fila
                 btn_w = max(80, (CHAT_W - 12) // len(QUICK_ACTIONS))
                 with dpg.group(horizontal=True):
-                    for lbl, msg in QUICK_ACTIONS:
+                    for i, (lbl, msg) in enumerate(QUICK_ACTIONS):
                         btn = dpg.add_button(
+                            tag=f"qa_btn_{i}",
                             label=lbl, width=btn_w,
                             callback=lambda s, a, m=msg: send_message(m),
                         )
@@ -1340,7 +1403,8 @@ def build_gui():
             dpg.add_spacer(width=4)
 
             # ══ DERECHA: log + estado ══
-            with dpg.child_window(width=COL_R, height=PANEL_H, border=True):
+            with dpg.child_window(width=COL_R, height=PANEL_H, border=True,
+                                  tag="right_panel"):
                 dpg.add_spacer(height=4)
                 with dpg.tab_bar():
 
@@ -1384,6 +1448,8 @@ def build_gui():
                                        callback=run_world_agent)
 
     dpg.set_primary_window("main_window", True)
+    dpg.set_viewport_resize_callback(lambda: _relayout())
+    _relayout()
     refresh_estado_panel()
 
 # ─────────────────────────────────────────────
