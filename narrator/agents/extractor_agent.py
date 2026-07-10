@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from narrator.core.llm_client import LLMClient
+from narrator.core.npc_psyche import validate_psyche
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.embedder import Embedder
 
@@ -50,6 +51,13 @@ def _npc_frontmatter(data: dict, system_slug: str) -> str:
         lines.append(f'rol: "{data["rol"]}"')
     if data.get("amenaza"):
         lines.append(f'amenaza: {data["amenaza"]}')
+    # Psicología (C1): arquetipo dominante + rasgos dimensionales validados
+    arquetipo, rasgos = validate_psyche(data.get("arquetipo"), data.get("rasgos"))
+    if arquetipo:
+        lines.append(f'arquetipo: "{arquetipo}"')
+    if rasgos:
+        lines.append("rasgos:")
+        lines += [f"  {k}: {v}" for k, v in rasgos.items()]
     lines.append(f"tags: {json.dumps(tags, ensure_ascii=False)}")
     lines.append("---")
     return "\n".join(lines)
@@ -95,6 +103,9 @@ def _faction_frontmatter(data: dict) -> str:
     return "\n".join(lines)
 
 
+_EVENT_TYPES_VALIDOS = ("combate", "persecucion", "horror", "exploracion", "descanso")
+
+
 def _front_frontmatter(data: dict) -> str:
     nombre = data.get("nombre", "Frente")
     lines = [
@@ -103,6 +114,14 @@ def _front_frontmatter(data: dict) -> str:
         f'nombre: "{nombre}"',
         f'escasez: "{data.get("escasez", "seguridad")}"',
         'estado: "latente"',
+    ]
+    # Reactividad (C3): tipos de acción del jugador que aceleran el reloj
+    reactivo = data.get("reactivo_a")
+    if isinstance(reactivo, list):
+        validos = [e for e in reactivo if e in _EVENT_TYPES_VALIDOS]
+        if validos:
+            lines.append(f"reactivo_a: {json.dumps(validos, ensure_ascii=False)}")
+    lines += [
         'tags: ["frente", "amenaza"]',
         "---",
     ]
@@ -123,6 +142,8 @@ Para cada uno, devolvé un JSON con estos campos (usá null si no aparece):
 - faccion (string, organización a la que pertenece)
 - amenaza (string: "alta", "media" o "baja")
 - descripcion (string, 2-3 oraciones de descripción)
+- arquetipo (string, UNO de: self, persona, sombra, anima_animus, heroe, sabio, trickster, madre, padre, nino_divino, gobernante, rebelde — el que mejor capture su personalidad)
+- rasgos (objeto con valores 0.0 a 1.0 para: extraversion, amabilidad, neuroticismo, impulsividad, agresividad, empatia)
 
 Devolvé SOLO un array JSON válido. Sin texto adicional. Sin comillas extras. Sin markdown.
 
@@ -176,6 +197,7 @@ Para cada Frente, devolvé un JSON con:
 - descripcion (string, en qué consiste la amenaza)
 - npcs_involucrados (lista de nombres de NPCs ya extraídos)
 - perdicion (string, qué pasa si nadie actúa)
+- reactivo_a (lista de tipos de acción del jugador que aceleran esta amenaza; elegí entre: combate, persecucion, horror, exploracion, descanso — ej. una cacería reacciona a "combate" y "persecucion")
 
 Devolvé SOLO un array JSON válido. Sin texto adicional.
 

@@ -32,6 +32,7 @@ class StateManager:
             },
             "relojes": {},
             "flags": {},
+            "escenas": {},
             "downtime": {"pendiente": [], "npcs_activos": []},
             "historial": [],
         }
@@ -134,6 +135,25 @@ class StateManager:
     def get_flag(self, name: str, default: Any = None) -> Any:
         entry = self.data["flags"].get(name)
         return entry["valor"] if entry else default
+
+    # ── Escenas (C2 — patrón contenido/estado de rage_war) ────
+    # El contenido de cada escena vive en el vault (Escenas/*.md);
+    # acá solo se persiste su estado: bloqueada → disponible → jugada.
+    def get_scene_state(self, name: str) -> dict:
+        return self.data.setdefault("escenas", {}).get(
+            name, {"estado": "bloqueada", "desbloqueada_por": ""})
+
+    def set_scene_state(self, name: str, estado: str, por: str = ""):
+        escenas = self.data.setdefault("escenas", {})
+        entry = escenas.setdefault(name, {"estado": "bloqueada", "desbloqueada_por": ""})
+        entry["estado"] = estado
+        if por:
+            entry["desbloqueada_por"] = por
+        self.save()
+
+    def get_scenes_by_state(self, estado: str) -> "list[str]":
+        return [n for n, e in self.data.get("escenas", {}).items()
+                if e.get("estado") == estado]
 
     # ── Historial de sesiones ─────────────────────────────────
     def start_session(self):

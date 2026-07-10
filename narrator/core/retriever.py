@@ -6,6 +6,7 @@ Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible
 
 import re
 from narrator.logger import logger
+from narrator.core.npc_psyche import format_psyche_line
 from pathlib import Path
 from typing import Optional
 
@@ -186,7 +187,10 @@ class VaultRetriever:
             rol = m.get("rol", "")
             amenaza = m.get("amenaza", "")
             amenaza_str = f" [amenaza:{amenaza}]" if amenaza else ""
-            lines.append(f"- {name} ({grupo}){amenaza_str}: {rol}")
+            # Psicología (C1): línea conductual para diálogos consistentes
+            psyche = format_psyche_line(m)
+            psyche_str = f" | {psyche}" if psyche else ""
+            lines.append(f"- {name} ({grupo}){amenaza_str}: {rol}{psyche_str}")
         return "\n".join(lines)
 
     def get_active_fronts_summary(self) -> str:

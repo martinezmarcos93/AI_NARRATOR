@@ -74,6 +74,8 @@ class PromptBuilder:
         world_status: str = "",
         investigation_hint: str = "",
         mechanical_resolution: str = "",
+        scenes_info: str = "",
+        forced_event: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
@@ -115,13 +117,31 @@ class PromptBuilder:
             sections.append(f"FRENTES ACTIVOS:\n{active_fronts}")
 
         if active_npcs:
-            sections.append(f"NPCS EN EL MUNDO:\n{active_npcs}")
+            sections.append(
+                "NPCS EN EL MUNDO (si un NPC tiene 'psique', respetala en sus "
+                "diálogos y decisiones — es su personalidad):\n"
+                f"{active_npcs}"
+            )
 
         if world_status:
             sections.append(f"ESTADO DEL MUNDO:\n{world_status}")
 
         if investigation_hint:
             sections.append(f"INVESTIGACIÓN:\n{investigation_hint}")
+
+        if scenes_info:
+            sections.append(f"ESCENAS DE LA AVENTURA:\n{scenes_info}")
+
+        if forced_event:
+            # Fronts reactivos (C3): el reloj se llenó por las acciones del
+            # jugador — la amenaza estalla AHORA, no en downtime.
+            sections.append(
+                f"EVENTO FORZOSO — el reloj del frente '{forced_event}' se llenó "
+                "por las acciones recientes del jugador. INTERRUMPÍ la escena "
+                "actual EN ESTE TURNO con la consecuencia de esa amenaza "
+                "(refuerzos, derrumbe, descubrimiento, estallido social — según "
+                "el frente). No lo pospongas."
+            )
 
         if pacing_instruction:
             sections.append(f"RITMO Y TONO:\n{pacing_instruction}")
