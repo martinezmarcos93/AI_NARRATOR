@@ -4,6 +4,24 @@ Todas las modificaciones relevantes de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/);
 versionado [semántico](https://semver.org/lang/es/).
 
+## [0.4.0] — 2026-07-10
+
+### Añadido
+- **Rule Arbiter** (`narrator/core/rule_arbiter.py`): resolución mecánica
+  determinística de tiradas contra la planilla. Mecánicas: d20+mod vs CD
+  (D&D 5e / PF2e, críticos naturales), pool d10 con éxitos netos y botch
+  (VtM V20), percentil normal/duro/extremo/pifia (CoC 7e) y bandas por
+  ratio (genérico).
+- Sección `resolution` en los YAML de sistemas: escalera estándar de
+  dificultades, keywords de acción→atributo y override del jugador
+  ("CD 18").
+- El veredicto se muestra en el chat (⚖) y se inyecta al prompt como
+  sección RESOLUCIÓN MECÁNICA con instrucción de no recalcular.
+
+### Cambiado
+- La banda 10+/7-9/6- del MasterMoveEngine sale del veredicto real del
+  arbiter; la heurística por ratio queda como fallback.
+
 ## [0.3.0] — 2026-07-10
 
 ### Añadido
