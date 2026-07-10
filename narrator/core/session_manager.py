@@ -21,6 +21,7 @@ class SessionManager:
             "session_log": state.get("session_log", []),
             "phase": state.get("phase", "idle"),
             "session_number": state.get("session_number", 1),
+            "memoria_episodica": state.get("memoria_episodica", {}),
             "timestamp": datetime.now().isoformat()
         }
         try:
@@ -45,6 +46,7 @@ class SessionManager:
                     "session_log": data.get("session_log", []),
                     "phase": data.get("phase", "idle"),
                     "session_number": data.get("session_number", 1),
+                    "memoria_episodica": data.get("memoria_episodica", {}),
                 })
                 return True
             except Exception as e:

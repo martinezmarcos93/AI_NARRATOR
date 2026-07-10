@@ -18,9 +18,11 @@ from datetime import datetime
 
 from narrator import PROJECT_ROOT, resolve_path
 from narrator.core.llm_client import LLMClient
+from narrator.core.memory_manager import MemoryManager
 from narrator.core.session_manager import SessionManager
 from narrator.core.sheet_parser import parse_character_sheet
 session_manager = SessionManager()
+_memory = MemoryManager()
 
 # ── Backend de agentes ────────────────────────────────────
 # Carga con fallback: si el package no está listo, usa modo legacy.
@@ -404,6 +406,17 @@ def finish_streaming(full_text: str):
             daemon=True,
         ).start()
 
+    # Memoria episódica: si se acumuló un lote de turnos fuera de la
+    # ventana, resumirlo en background (no bloquea el turno).
+    with state_lock:
+        messages_snapshot = list(state["messages"])
+    if _memory.pending_batch(messages_snapshot):
+        threading.Thread(
+            target=_memory.summarize_batch,
+            args=(messages_snapshot, LLMClient(model=state["model"])),
+            daemon=True,
+        ).start()
+
     # Actualizaciones de DPG — encoladas para el hilo principal
     _refresh_char = needs_char_refresh
     _refresh_log = is_important
@@ -549,11 +562,22 @@ def send_message(user_text: str = None):
         else:
             system_content = _build_legacy_context()
 
+        # Memoria episódica (capa 2): resúmenes de turnos fuera de la ventana.
+        summary = _memory.get_summary_text()
+        if summary:
+            system_content += (
+                "\n\nMEMORIA DE LA SESIÓN (hechos de turnos anteriores, ya "
+                "resumidos — el historial reciente llega como mensajes):\n"
+                f"{summary}"
+            )
+
         with state_lock:
             # Banda y resolución mecánica ya consumidas por el contexto del turno.
             state.pop("tirada_banda", None)
             state.pop("resolucion_mecanica", None)
-            messages_to_send = [{"role": "system", "content": system_content}] + list(state["messages"])
+            # Capa 1: al LLM va solo la ventana reciente, no todo el historial.
+            messages_to_send = ([{"role": "system", "content": system_content}]
+                                + _memory.get_working_messages(state["messages"]))
 
         LLMClient(model=state["model"]).stream_chat(messages_to_send, update_streaming_label, finish_streaming)
 
@@ -942,6 +966,12 @@ def apply_character_edits():
         append_to_chat("system", f"⚠ JSON inválido: {e}")
 
 
+def _save_session_with_memory() -> str:
+    """Guarda la sesión sincronizando antes la memoria episódica al estado."""
+    state["memoria_episodica"] = _memory.to_dict()
+    return session_manager.save_session(state)
+
+
 # ─────────────────────────────────────────────
 #  NUEVA SESIÓN
 # ─────────────────────────────────────────────
@@ -952,6 +982,7 @@ def new_session_callback():
                   "session_log": [], "phase": "idle",
                   "last_dice_result": None,
                   "session_number": state.get("session_number", 1) + 1})
+    _memory.reset()
     if _AGENT_MODE and _orchestrator:
         _orchestrator.pacing_agent.reset_session()
     # delete_item borra TAMBIÉN streaming_group (vive dentro de chat_scroll):
@@ -961,7 +992,7 @@ def new_session_callback():
     refresh_character_panel()
     refresh_log()
     refresh_estado_panel()
-    session_manager.save_session(state)
+    _save_session_with_memory()
     append_to_chat("system", f"Nueva sesión iniciada: #{state['session_number']}")
 
     # Retomar el flujo guiado: si el manual sigue cargado solo falta la
@@ -1444,7 +1475,7 @@ def build_gui():
             dpg.add_button(tag="build_vault_btn", label="Vault",
                            callback=build_vault_callback, enabled=False)
             dpg.add_button(label="Guardar",
-                           callback=lambda: (session_manager.save_session(state),
+                           callback=lambda: (_save_session_with_memory(),
                                              append_to_chat("system", "Sesion guardada.")))
 
         dpg.add_separator()
@@ -1654,6 +1685,7 @@ def main():
         print()
 
     if session_manager.load_session(state):
+        _memory.from_dict(state.get("memoria_episodica", {}))
         print("✓ Sesión anterior cargada")
 
     _init_vault_writer()
