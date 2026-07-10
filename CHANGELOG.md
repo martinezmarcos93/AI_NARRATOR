@@ -4,6 +4,22 @@ Todas las modificaciones relevantes de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/);
 versionado [semántico](https://semver.org/lang/es/).
 
+## [0.5.0] — 2026-07-10
+
+### Añadido
+- **Memoria episódica jerárquica** (`narrator/core/memory_manager.py`):
+  al LLM va solo la ventana de los últimos 10 mensajes (capa 1); los
+  turnos anteriores se resumen en background a viñetas factuales que
+  entran al prompt como MEMORIA DE LA SESIÓN (capa 2); el RAG del vault
+  sigue como capa 3. Evita el desborde de contexto de los modelos 7B
+  en sesiones largas.
+- Persistencia de la memoria episódica en `session.json`, con
+  restauración al reabrir y reset en "Nueva sesión".
+
+### Arreglado
+- `.gitignore`: se excluyen artefactos de build (`*.egg-info/`,
+  `build/`, `dist/`).
+
 ## [0.4.0] — 2026-07-10
 
 ### Añadido
