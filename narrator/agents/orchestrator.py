@@ -42,6 +42,9 @@ class Orchestrator:
             vault_path=Path(vault_path),
         )
         self._investigation_quiet_turns: int = 0
+        # Fronts reactivos (C3): frente cuyo reloj se llenó en vivo y debe
+        # interrumpir la escena en el próximo turno del narrador.
+        self._pending_interruption: str = ""
 
     def _load_config(self, path: str) -> dict:
         try:
@@ -100,6 +103,29 @@ class Orchestrator:
     def record_event(self, event_type: str, intensity: int = 1) -> None:
         """Registra un evento de sesión (llamar desde app.py tras cada turno)."""
         self.pacing_agent.update_event_history(event_type, intensity)
+        self._react_fronts(event_type, intensity)
+
+    def _react_fronts(self, event_type: str, intensity: int) -> None:
+        """Fronts reactivos (C3): las acciones del jugador aceleran en vivo
+        los relojes de los frentes sensibles a ese tipo de evento
+        (frontmatter ``reactivo_a``). Reloj lleno → interrupción forzosa."""
+        try:
+            fronts = self.retriever.get_by_type("frente")
+        except Exception as e:
+            logger.error(f"Fronts reactivos: error leyendo frentes: {e}", exc_info=True)
+            return
+        ticks = 2 if intensity >= 3 else 1
+        for front in fronts:
+            meta = front.get("meta", {})
+            nombre = meta.get("nombre", "")
+            reactivo = meta.get("reactivo_a") or []
+            if not nombre or event_type not in reactivo:
+                continue
+            ya_lleno = self.state.is_clock_full(nombre)
+            self.state.add_front(nombre, meta.get("escasez", ""))
+            self.state.advance_front_clock(nombre, ticks)
+            if not ya_lleno and self.state.is_clock_full(nombre):
+                self._pending_interruption = nombre
 
     def _build_move_context(self, app_state: dict, active_fronts: str, active_npcs: str) -> dict:
         relojes = self.state.data.get("relojes", {})
@@ -180,6 +206,12 @@ class Orchestrator:
         )
         scenes_info = self.scenes.get_prompt_section(scene_events["desbloqueadas"])
 
+        # Fronts reactivos (C3): interrupción forzosa de un reloj llenado en vivo
+        forced_event = ""
+        if self._pending_interruption:
+            forced_event = self._pending_interruption
+            self._pending_interruption = ""
+
         return self.builder.build_narrator_prompt(
             system_slug=system_slug,
             vault_context=vault_ctx,
@@ -195,6 +227,7 @@ class Orchestrator:
             investigation_hint=investigation_hint,
             mechanical_resolution=app_state.get("resolucion_mecanica", ""),
             scenes_info=scenes_info,
+            forced_event=forced_event,
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

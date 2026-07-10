@@ -103,6 +103,9 @@ def _faction_frontmatter(data: dict) -> str:
     return "\n".join(lines)
 
 
+_EVENT_TYPES_VALIDOS = ("combate", "persecucion", "horror", "exploracion", "descanso")
+
+
 def _front_frontmatter(data: dict) -> str:
     nombre = data.get("nombre", "Frente")
     lines = [
@@ -111,6 +114,14 @@ def _front_frontmatter(data: dict) -> str:
         f'nombre: "{nombre}"',
         f'escasez: "{data.get("escasez", "seguridad")}"',
         'estado: "latente"',
+    ]
+    # Reactividad (C3): tipos de acción del jugador que aceleran el reloj
+    reactivo = data.get("reactivo_a")
+    if isinstance(reactivo, list):
+        validos = [e for e in reactivo if e in _EVENT_TYPES_VALIDOS]
+        if validos:
+            lines.append(f"reactivo_a: {json.dumps(validos, ensure_ascii=False)}")
+    lines += [
         'tags: ["frente", "amenaza"]',
         "---",
     ]
@@ -186,6 +197,7 @@ Para cada Frente, devolvé un JSON con:
 - descripcion (string, en qué consiste la amenaza)
 - npcs_involucrados (lista de nombres de NPCs ya extraídos)
 - perdicion (string, qué pasa si nadie actúa)
+- reactivo_a (lista de tipos de acción del jugador que aceleran esta amenaza; elegí entre: combate, persecucion, horror, exploracion, descanso — ej. una cacería reacciona a "combate" y "persecucion")
 
 Devolvé SOLO un array JSON válido. Sin texto adicional.
 
