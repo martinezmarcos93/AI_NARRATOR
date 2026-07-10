@@ -74,6 +74,7 @@ class PromptBuilder:
         world_status: str = "",
         investigation_hint: str = "",
         mechanical_resolution: str = "",
+        scenes_info: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
@@ -126,6 +127,9 @@ class PromptBuilder:
 
         if investigation_hint:
             sections.append(f"INVESTIGACIÓN:\n{investigation_hint}")
+
+        if scenes_info:
+            sections.append(f"ESCENAS DE LA AVENTURA:\n{scenes_info}")
 
         if pacing_instruction:
             sections.append(f"RITMO Y TONO:\n{pacing_instruction}")

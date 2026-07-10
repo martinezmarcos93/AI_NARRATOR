@@ -850,6 +850,19 @@ def refresh_estado_panel():
         dpg.add_text("Construí el vault primero.", parent="estado_content",
                      color=list(C_TEXT_DIM), wrap=155)
 
+    # Escenas (C2)
+    if _AGENT_MODE and _orchestrator:
+        try:
+            escenas = _orchestrator.scenes.get_status_summary()
+        except Exception:
+            escenas = ""
+        if escenas:
+            dpg.add_spacer(height=6, parent="estado_content")
+            dpg.add_text("ESCENAS:", parent="estado_content", color=list(C_GOLD_DIM))
+            for line in escenas.splitlines():
+                color = list(C_GOLD) if line.startswith("▶") else list(C_TEXT_DIM)
+                dpg.add_text(line, parent="estado_content", color=color, wrap=155)
+
 # ─────────────────────────────────────────────
 #  MULTI-PDF — carga suplementos adicionales
 # ─────────────────────────────────────────────

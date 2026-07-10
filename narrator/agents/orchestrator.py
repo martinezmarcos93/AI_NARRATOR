@@ -9,6 +9,7 @@ from pathlib import Path
 from narrator import resolve_path
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
+from narrator.core.scene_manager import SceneManager
 from narrator.core.state_manager import StateManager
 from narrator.core.theory_engine import MasterMoveEngine, PacingToneAgent, WorldSimulationEngine, InvestigationEngine
 
@@ -28,6 +29,7 @@ class Orchestrator:
         self.retriever = VaultRetriever(vault_path=vault_path)
         self.state = StateManager(state_path=state_path)
         self.state.load()
+        self.scenes = SceneManager(retriever=self.retriever, state=self.state)
 
         self.master_moves = MasterMoveEngine(config_path=_THEORY_ENGINE_PATH)
         self.pacing_agent = PacingToneAgent(config_path=_THEORY_ENGINE_PATH)
@@ -138,6 +140,13 @@ class Orchestrator:
                 return msg["content"]
         return ""
 
+    def _get_last_assistant_message(self, app_state: dict) -> str:
+        messages = app_state.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") == "assistant":
+                return msg["content"]
+        return ""
+
     def build_narrator_context(self, app_state: dict) -> str:
         system_slug = self.get_active_system(app_state)
         last_user_msg = self._get_last_user_message(app_state)
@@ -164,6 +173,13 @@ class Orchestrator:
         world_status = self.get_world_status_text()
         investigation_hint = self.get_investigation_hint(app_state)
 
+        # Escenas (C2): evaluar desbloqueos/jugadas de forma determinística
+        scene_events = self.scenes.evaluate(
+            player_text=last_user_msg,
+            narrator_text=self._get_last_assistant_message(app_state),
+        )
+        scenes_info = self.scenes.get_prompt_section(scene_events["desbloqueadas"])
+
         return self.builder.build_narrator_prompt(
             system_slug=system_slug,
             vault_context=vault_ctx,
@@ -178,6 +194,7 @@ class Orchestrator:
             world_status=world_status,
             investigation_hint=investigation_hint,
             mechanical_resolution=app_state.get("resolucion_mecanica", ""),
+            scenes_info=scenes_info,
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:
