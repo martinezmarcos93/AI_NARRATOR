@@ -31,6 +31,12 @@ ai-narrator = "narrator.app:main"
 requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["narrator*"]
+
+[tool.setuptools.package-data]
+narrator = ["**/*.yaml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
