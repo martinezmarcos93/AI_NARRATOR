@@ -19,6 +19,7 @@ from datetime import datetime
 from narrator import PROJECT_ROOT, resolve_path
 from narrator.core.llm_client import LLMClient
 from narrator.core.session_manager import SessionManager
+from narrator.core.sheet_parser import parse_character_sheet
 session_manager = SessionManager()
 
 # ── Backend de agentes ────────────────────────────────────
@@ -93,10 +94,10 @@ Cuando el jugador quiera hacer algo con riesgo:
 4. En éxito parcial (PbtA 7-9): ofrecé una elección difícil
 5. En fallo: avanzá la historia con una complicación, nunca "simplemente fallás"
 
-CREACIÓN DE PERSONAJE:
-1. Detectá el sistema de juego del manual cargado
-2. Proponé opciones con menús numerados y sabor narrativo
-3. Construí la hoja progresivamente, preguntando de a una sección
+PERSONAJE:
+- La hoja del personaje llega YA CARGADA desde la planilla adjunta del jugador
+- NO crees ni modifiques el personaje por tu cuenta; usá los datos provistos
+- Si falta un dato de la hoja, preguntale al jugador en vez de inventarlo
 
 TONO: Adaptá el vocabulario al sistema. Respondé en español rioplatense.
 """
@@ -114,6 +115,7 @@ state = {
     "manual_names": [],       # lista de todos los PDFs cargados (multi-PDF)
     "system_name": "",
     "system_slug": "generic",
+    "declared_game": "",      # juego declarado por el jugador en el inicio guiado
     "phase": "idle",
     "pending_roll": None,
     "session_log": [],
@@ -413,16 +415,71 @@ def finish_streaming(full_text: str):
 
     _ui(_ui_update)
 
+# ─────────────────────────────────────────────
+#  FLUJO DE INICIO GUIADO (juego → manual → planilla)
+# ─────────────────────────────────────────────
+SETUP_PHASES = ("setup_game", "setup_manual", "setup_sheet")
+
+def start_onboarding():
+    """Arranca el flujo guiado de inicio de sesión de juego."""
+    state["phase"] = "setup_game"
+    append_to_chat(
+        "system",
+        "¿Qué juego vamos a jugar hoy?\n"
+        "Escribí el nombre (ej.: Vampiro V20, D&D 5e, La Llamada de Cthulhu, "
+        "Pathfinder 2e) y presioná Enter.",
+    )
+
+def _setup_reminder() -> str:
+    phase = state.get("phase")
+    if phase == "setup_game":
+        return "decime qué juego vamos a jugar."
+    if phase == "setup_manual":
+        return "adjuntá el manual básico en PDF."
+    return "adjuntá la planilla de tu personaje en PDF."
+
+def _handle_setup_input(user_text: str):
+    """Procesa el texto del jugador durante el inicio guiado (sin LLM)."""
+    phase = state.get("phase")
+    append_to_chat("user", user_text)
+    if phase == "setup_game":
+        state["declared_game"] = user_text.strip()
+        state["phase"] = "setup_manual"
+        append_to_chat(
+            "system",
+            f"Perfecto: {state['declared_game']}.\n"
+            "Ahora adjuntá una copia del manual básico en PDF.",
+        )
+        dpg.show_item("pdf_dialog")
+    elif phase == "setup_manual":
+        append_to_chat("system", "Necesito el manual básico en PDF para continuar.")
+        dpg.show_item("pdf_dialog")
+    else:  # setup_sheet
+        append_to_chat("system", "Necesito la planilla de tu personaje en PDF para continuar.")
+        dpg.show_item("sheet_dialog")
+
+
 def send_message(user_text: str = None):
     global _is_streaming, _streaming_token
 
     if _is_streaming:
         return
 
+    typed = user_text is None
     if user_text is None:
         user_text = dpg.get_value("user_input").strip()
 
     if not user_text:
+        return
+
+    # Durante el inicio guiado no se llama al LLM: el sistema conduce.
+    if state.get("phase") in SETUP_PHASES:
+        if typed:
+            dpg.set_value("user_input", "")
+            _handle_setup_input(user_text)
+        else:
+            # Acciones rápidas / dados durante el setup: recordar el paso.
+            append_to_chat("system", f"Primero completemos el inicio: {_setup_reminder()}")
         return
 
     dpg.set_value("user_input", "")
@@ -877,6 +934,19 @@ def new_session_callback():
     session_manager.save_session(state)
     append_to_chat("system", f"Nueva sesión iniciada: #{state['session_number']}")
 
+    # Retomar el flujo guiado: si el manual sigue cargado solo falta la
+    # planilla; si no, se arranca desde la elección del juego.
+    if state.get("manual_text"):
+        state["phase"] = "setup_sheet"
+        append_to_chat(
+            "system",
+            f"Manual conservado ({state.get('manual_name', '')}). "
+            "Adjuntá la planilla de tu personaje para esta sesión (PDF).",
+        )
+        dpg.show_item("sheet_dialog")
+    else:
+        start_onboarding()
+
 
 # ─────────────────────────────────────────────
 #  WORLD AGENT — avance autónomo del mundo
@@ -965,19 +1035,11 @@ def load_pdf_callback(sender, app_data):
             state["manual_names"] = [name]
             state["system_name"] = system_name
             state["system_slug"] = system_slug
-            state["phase"] = "char_creation"
+            # La creación de personaje in-app está pospuesta (roadmap Fase A):
+            # el siguiente paso del flujo es adjuntar la planilla del jugador.
+            state["phase"] = "setup_sheet"
 
-        analysis_prompt = (
-            f"Acabo de cargar el manual '{name}'. "
-            f"Sistema detectado: {system_name}. "
-            f"Presentame las opciones principales para crear un personaje "
-            f"(clanes, razas, clases, arquetipos según el sistema) "
-            f"con un menú numerado y sabor narrativo. "
-            f"Cuando elija, guiame por las secciones de la hoja. "
-            f"Incluí datos del personaje en bloques ```json``` para actualizar la hoja."
-        )
-
-        def _update(sn=system_name, n=name, ap=analysis_prompt):
+        def _update(sn=system_name, n=name):
             dpg.set_value("manual_status", f"✓ {n}")
             dpg.set_value("system_detected", sn)
             try:
@@ -985,12 +1047,69 @@ def load_pdf_callback(sender, app_data):
                 dpg.enable_item("add_pdf_btn")
             except Exception as e:
                 logger.error(f"Error inesperado: {e}", exc_info=True)
-            append_to_chat("system", f"Manual cargado: {n}\nSistema: {sn}")
-            send_message(ap)
+            append_to_chat(
+                "system",
+                f"Manual cargado: {n}\nSistema detectado: {sn}\n\n"
+                "Ahora adjuntá la planilla de tu personaje (PDF).",
+            )
+            dpg.show_item("sheet_dialog")
 
         _ui(_update)
 
     threading.Thread(target=process, daemon=True).start()
+
+# ─────────────────────────────────────────────
+#  GUI — PLANILLA DEL JUGADOR (PDF adjunto → LLM → hoja)
+# ─────────────────────────────────────────────
+def load_sheet_callback(sender, app_data):
+    """Carga la planilla del jugador: extrae el texto del PDF y la
+    estructura vía LLM para poblar la hoja de personaje."""
+    if not app_data or "file_path_name" not in app_data:
+        return
+    path = app_data["file_path_name"]
+    name = Path(path).name
+    _proc_start(f"Leyendo planilla: {name}")
+
+    def process():
+        text = extract_pdf_text(path, max_chars=15000)
+        if not text:
+            _ui(lambda n=name: _proc_done(f"⚠ No pude leer la planilla: {n}. Revisá logs."))
+            return
+        _ui(lambda: _proc_step("Estructurando la planilla con el LLM..."))
+        char = parse_character_sheet(
+            text, LLMClient(model=state["model"]),
+            system_name=state.get("system_name", ""),
+        )
+        if not char:
+            _ui(lambda: _proc_done(
+                "⚠ No pude estructurar la planilla. Probá con otro PDF "
+                "o cargá los datos a mano en 'Editar (JSON)'."))
+            return
+        with state_lock:
+            state["character"] = char
+            state["phase"] = "play"
+
+        def _done(n=name, c=char):
+            refresh_character_panel()
+            refresh_character_editor()
+            _proc_done(f"Planilla cargada: {n} — personaje: {c.get('nombre', '(sin nombre)')}.")
+            _begin_adventure()
+
+        _ui(_done)
+
+    threading.Thread(target=process, daemon=True).start()
+
+
+def _begin_adventure():
+    """Primer turno: el narrador abre la aventura con el personaje cargado."""
+    nombre = state["character"].get("nombre", "mi personaje")
+    sistema = state.get("system_name") or state.get("declared_game") or "el sistema cargado"
+    send_message(
+        f"Ya cargué el manual ({sistema}) y la planilla de mi personaje, {nombre}. "
+        "Comenzá la aventura: presentá una escena inicial atmosférica acorde al sistema, "
+        "sin crear ni modificar mi personaje, y terminá preguntándome qué hago."
+    )
+
 
 # ─────────────────────────────────────────────
 #  GUI — VAULT BUILDER
@@ -1234,6 +1353,13 @@ def build_gui():
     dpg.add_file_extension(".pdf", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
     dpg.add_file_extension(".PDF", parent="pdf_supplement_dialog", color=list(C_GOLD_DIM))
 
+    dpg.add_file_dialog(
+        tag="sheet_dialog", directory_selector=False, show=False,
+        callback=load_sheet_callback, width=700, height=450, modal=True,
+    )
+    dpg.add_file_extension(".pdf", parent="sheet_dialog", color=list(C_GOLD))
+    dpg.add_file_extension(".PDF", parent="sheet_dialog", color=list(C_GOLD))
+
     # ── Ventana de progreso flotante ──────────────────────────
     with dpg.window(tag="proc_detail_window",
                     label="Proceso en segundo plano",
@@ -1279,6 +1405,8 @@ def build_gui():
             dpg.add_button(tag="add_pdf_btn", label="+ Supl.",
                            callback=lambda: dpg.show_item("pdf_supplement_dialog"),
                            enabled=False)
+            dpg.add_button(label="Planilla",
+                           callback=lambda: dpg.show_item("sheet_dialog"))
             dpg.add_spacer(width=8)
             dpg.add_text("Sistema:", color=list(C_TEXT_DIM))
             dpg.add_text("--", tag="system_detected", color=list(C_TEXT_DIM))
@@ -1370,9 +1498,7 @@ def build_gui():
                 with dpg.child_window(tag="chat_scroll", height=CHAT_H,
                                       border=False, horizontal_scrollbar=False):
                     dpg.add_text(
-                        "Bienvenido al AI Narrator.\n"
-                        "Carga un manual PDF para comenzar la creacion de personaje,\n"
-                        "o escribi directamente para iniciar una aventura.",
+                        "Bienvenido al AI Narrator.",
                         color=list(C_TEXT_DIM), wrap=_CHAT_WRAP_W,
                     )
                     dpg.add_separator()
@@ -1518,6 +1644,14 @@ def main():
         refresh_character_editor()
     if state["session_log"]:
         refresh_log()
+
+    # Sesión nueva (sin historial): el sistema conduce el inicio.
+    if not state["messages"]:
+        start_onboarding()
+    elif state.get("phase") in SETUP_PHASES or state.get("phase") == "char_creation":
+        # Fase de setup guardada de una sesión vieja: el manual no persiste
+        # entre ejecuciones, así que se retoma el flujo desde el principio.
+        start_onboarding()
 
     while dpg.is_dearpygui_running():
         while True:
