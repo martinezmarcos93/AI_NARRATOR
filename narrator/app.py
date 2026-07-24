@@ -17,6 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 from narrator import PROJECT_ROOT, resolve_path
+from narrator.core import derived_stats
 from narrator.core.llm_client import LLMClient
 from narrator.core.memory_manager import MemoryManager
 from narrator.core.session_manager import SessionManager
@@ -671,15 +672,23 @@ def _dots(value, max_val: int = 5) -> str:
         v = 0
     return "●" * v + "○" * (max_val - v)
 
-def _stat(value) -> str:
+def _stat(value, formula: dict = None) -> str:
+    """Formatea un stat_block. Si el sistema define `stat_modifier_formula` en su
+    character_sheet_schema, calcula el modificador vía el DSL (narrator.core.derived_stats);
+    si no, muestra el valor crudo (ej. características 1-99 de CoC 7e, que no usan modificador)."""
     try:
         v = int(value)
-        mod = (v - 10) // 2
-        return f"{v} ({'+' if mod >= 0 else ''}{mod})"
     except (ValueError, TypeError):
         return str(value)
+    if not formula:
+        return str(v)
+    try:
+        mod = derived_stats.evaluate(formula, {"value": v})
+    except derived_stats.DerivedStatError:
+        return str(v)
+    return f"{v} ({'+' if mod >= 0 else ''}{mod})"
 
-def _render_field(label: str, value, display: str, ftype: str, max_val: int, parent: str):
+def _render_field(label: str, value, display: str, ftype: str, max_val: int, parent: str, stat_formula: dict = None):
     with dpg.group(horizontal=True, parent=parent):
         dpg.add_text(f"{label}:", color=list(C_TEXT_DIM), wrap=72)
         if value is None or value == "":
@@ -689,11 +698,11 @@ def _render_field(label: str, value, display: str, ftype: str, max_val: int, par
         elif display == "dots" and ftype == "int":
             dpg.add_text(_dots(value, max_val), color=list(C_GOLD))
         elif display == "stat_block" and ftype == "int":
-            dpg.add_text(_stat(value), color=list(C_TEXT))
+            dpg.add_text(_stat(value, stat_formula), color=list(C_TEXT))
         else:
             dpg.add_text(str(value), color=list(C_TEXT), wrap=88)
 
-def _render_section(section: dict, char: dict, parent: str, rendered: set):
+def _render_section(section: dict, char: dict, parent: str, rendered: set, stat_formula: dict = None):
     display = section.get("display", "default")
     dpg.add_text(section.get("name", "").upper(), color=list(C_GOLD_DIM), parent=parent)
     for field in section.get("fields", []):
@@ -709,6 +718,7 @@ def _render_section(section: dict, char: dict, parent: str, rendered: set):
             ftype=field.get("type", "string"),
             max_val=field.get("max", 5),
             parent=parent,
+            stat_formula=stat_formula,
         )
     dpg.add_spacer(height=5, parent=parent)
 
@@ -753,10 +763,11 @@ def refresh_character_panel():
     rendered: set = set()
     archetype_key = schema.get("archetype_key", "")
     archetype_val = str(char.get(archetype_key, "")).lower().strip() if archetype_key else ""
+    stat_formula = schema.get("stat_modifier_formula")
 
     # Secciones base
     for section in schema.get("base_sections", []):
-        _render_section(section, char, "char_content", rendered)
+        _render_section(section, char, "char_content", rendered, stat_formula)
 
     # Secciones condicionales según clan/clase/tipo
     if archetype_val:
@@ -764,7 +775,7 @@ def refresh_character_panel():
         for cond_key, sections in cond.items():
             if cond_key.lower() == archetype_val:
                 for section in sections:
-                    _render_section(section, char, "char_content", rendered)
+                    _render_section(section, char, "char_content", rendered, stat_formula)
                 break
 
     # Extras: campos que el LLM generó fuera del schema
