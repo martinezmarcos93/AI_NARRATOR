@@ -18,6 +18,7 @@ from datetime import datetime
 
 from narrator import PROJECT_ROOT, resolve_path
 from narrator.core import derived_stats
+from narrator.core.ideas_inbox import IdeasInbox
 from narrator.core.llm_client import LLMClient
 from narrator.core.memory_manager import MemoryManager
 from narrator.core.session_manager import SessionManager
@@ -850,6 +851,37 @@ def _clock_bar(tick: int, max_ticks: int) -> str:
     bar = "█" * filled + "░" * (max_ticks - filled)
     return f"[{bar}] {filled}/{max_ticks}"
 
+def _get_ideas_inbox() -> IdeasInbox:
+    vault_path = str(_orchestrator.retriever.vault_path) if (_AGENT_MODE and _orchestrator) \
+        else str(resolve_path("vault"))
+    return IdeasInbox(vault_path=vault_path)
+
+def capture_idea_callback():
+    """Anota el último mensaje del jugador como idea suelta (Fase 6)."""
+    last_user = next(
+        (m["content"] for m in reversed(state["messages"]) if m.get("role") == "user"), ""
+    )
+    if not last_user:
+        append_to_chat("system", "No hay un mensaje reciente para anotar como idea.")
+        return
+    titulo = last_user.strip()[:60]
+    try:
+        _get_ideas_inbox().create(titulo, contenido=last_user.strip())
+        append_to_chat("system", f"💡 Idea anotada: \"{titulo}\"")
+    except Exception as e:
+        logger.error(f"Error anotando idea: {e}", exc_info=True)
+        append_to_chat("system", "⚠ No se pudo anotar la idea.")
+    refresh_estado_panel()
+
+def _promote_idea_callback(idea_path, tipo: str):
+    try:
+        target = _get_ideas_inbox().promote(idea_path, tipo=tipo)
+        append_to_chat("system", f"💡 Idea promovida a {tipo}: {target.stem}")
+    except Exception as e:
+        logger.error(f"Error promoviendo idea: {e}", exc_info=True)
+        append_to_chat("system", "⚠ No se pudo promover la idea.")
+    refresh_estado_panel()
+
 def refresh_estado_panel():
     try:
         dpg.delete_item("estado_content", children_only=True)
@@ -909,6 +941,41 @@ def refresh_estado_panel():
             for line in escenas.splitlines():
                 color = list(C_GOLD) if line.startswith("▶") else list(C_TEXT_DIM)
                 dpg.add_text(line, parent="estado_content", color=color, wrap=155)
+
+    # Ideas pendientes (Fase 6 — Ideas Inbox)
+    try:
+        ideas = _get_ideas_inbox().list_by_state("raw_idea") + _get_ideas_inbox().list_by_state("developing")
+    except Exception as e:
+        logger.error(f"Error listando ideas: {e}", exc_info=True)
+        ideas = []
+
+    dpg.add_spacer(height=8, parent="estado_content")
+    dpg.add_separator(parent="estado_content")
+    dpg.add_spacer(height=4, parent="estado_content")
+    dpg.add_text("IDEAS PENDIENTES:", parent="estado_content", color=list(C_GOLD_DIM))
+    if ideas:
+        for idea in ideas[:5]:
+            titulo = idea["meta"].get("titulo", idea["path"].stem)
+            with dpg.group(parent="estado_content"):
+                dpg.add_text(f"- {titulo}", color=list(C_TEXT), wrap=155)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="→ NPC", width=70,
+                        callback=lambda s, a, p=idea["path"]: _promote_idea_callback(p, "npc"),
+                    )
+                    dpg.add_button(
+                        label="→ Locación", width=90,
+                        callback=lambda s, a, p=idea["path"]: _promote_idea_callback(p, "locacion"),
+                    )
+            dpg.add_spacer(height=3, parent="estado_content")
+    else:
+        dpg.add_text("Sin ideas anotadas.", parent="estado_content", color=list(C_TEXT_DIM))
+
+    dpg.add_spacer(height=4, parent="estado_content")
+    dpg.add_button(
+        label="💡 Anotar último mensaje como idea", width=-1, parent="estado_content",
+        callback=lambda: capture_idea_callback(),
+    )
 
 # ─────────────────────────────────────────────
 #  MULTI-PDF — carga suplementos adicionales
