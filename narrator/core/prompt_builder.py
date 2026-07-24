@@ -76,6 +76,7 @@ class PromptBuilder:
         mechanical_resolution: str = "",
         scenes_info: str = "",
         forced_event: str = "",
+        combat_status: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
@@ -109,6 +110,12 @@ class PromptBuilder:
 
         if last_session:
             sections.append(f"ÚLTIMA SESIÓN:\n{last_session}")
+
+        if combat_status:
+            sections.append(
+                "COMBATE EN CURSO — respetá el orden de turnos, es el turno "
+                f"de quien se indica a continuación:\n{combat_status}"
+            )
 
         if clocks_summary:
             sections.append(f"RELOJES DE FRENTES:\n{clocks_summary}")

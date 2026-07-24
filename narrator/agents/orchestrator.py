@@ -235,6 +235,7 @@ class Orchestrator:
             mechanical_resolution=app_state.get("resolucion_mecanica", ""),
             scenes_info=scenes_info,
             forced_event=forced_event,
+            combat_status=self.state.get_combat_status_text(),
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:
