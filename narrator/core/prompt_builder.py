@@ -5,6 +5,7 @@ Mantiene el contexto total dentro de un budget de palabras para modelos pequeño
 
 import json
 from narrator.logger import logger
+from narrator.core.resolution_schema import ResolutionSchemaError, validate_resolution
 import yaml
 from pathlib import Path
 
@@ -38,6 +39,16 @@ class PromptBuilder:
             path = self.systems_path / "generic.yaml"
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+
+        # Validación del bloque resolution (Fase 10): se registra el error
+        # apenas se carga el sistema, sin frenar el turno en curso — el
+        # RuleArbiter ya degrada con gracia si "resolution" viene vacío.
+        if "resolution" in data:
+            try:
+                validate_resolution(data["resolution"], system_slug=slug)
+            except ResolutionSchemaError as e:
+                logger.error(f"YAML de sistema '{slug}' con resolution inválida: {e}")
+
         self._cache[slug] = data
         return data
 
