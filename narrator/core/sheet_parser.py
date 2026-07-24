@@ -42,6 +42,41 @@ def extract_json_block(raw: str) -> "dict | None":
     return None
 
 
+def extract_form_fields(pdf_path: str) -> dict:
+    """Extrae campos de formulario rellenable (AcroForm) de un PDF vía
+    PyMuPDF (Fase 17) — vía alternativa a texto+LLM cuando el jugador tiene
+    la ficha oficial en PDF rellenable: más rápida y sin depender del LLM.
+    Devuelve {} si el PDF no tiene campos (no es un formulario) o falla."""
+    import fitz
+
+    fields: dict = {}
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        logger.error(f"No se pudo abrir el PDF para extraer campos: {e}", exc_info=True)
+        return fields
+    try:
+        for page in doc:
+            for widget in (page.widgets() or []):
+                if widget.field_name:
+                    fields[widget.field_name] = widget.field_value
+    finally:
+        doc.close()
+    return fields
+
+
+def map_form_fields(fields: dict, field_map: dict) -> dict:
+    """Renombra campos crudos del PDF (ej. 'Str-1') a claves de la ficha de
+    personaje (ej. 'fuerza') según `field_map` {nombre_pdf: clave_ficha}.
+    Los campos sin mapeo o sin valor se descartan — no se inventan claves."""
+    result = {}
+    for pdf_name, value in fields.items():
+        key = field_map.get(pdf_name)
+        if key and value not in (None, ""):
+            result[key] = value
+    return result
+
+
 def parse_character_sheet(sheet_text: str, llm, system_name: str = "") -> "dict | None":
     """Estructura el texto de una planilla como dict de personaje.
 
