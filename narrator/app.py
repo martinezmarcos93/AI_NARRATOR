@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 from narrator import PROJECT_ROOT, resolve_path
-from narrator.core import derived_stats
+from narrator.core import derived_stats, dice_first_guard
 from narrator.core.ideas_inbox import IdeasInbox
 from narrator.core.llm_client import LLMClient
 from narrator.core.memory_manager import MemoryManager
@@ -126,6 +126,7 @@ state = {
     "phase": "idle",
     "pending_roll": None,
     "tirada_sugerida": None,  # (cantidad, caras) extraído de la última respuesta del narrador
+    "_dice_rolled_this_turn": False,
     "session_log": [],
     "last_dice_result": None,
     "session_number": 1,
@@ -406,6 +407,16 @@ def finish_streaming(full_text: str):
                 with state_lock:
                     state["session_log"].extend(f"[{ts}] Estado: {c}" for c in changelog)
 
+        # Fase 13: solo señala (log), nunca bloquea el turno.
+        last_user = next(
+            (m["content"] for m in reversed(state["messages"]) if m.get("role") == "user"), ""
+        )
+        if dice_first_guard.check(last_user, full_text, state.get("_dice_rolled_this_turn", False)):
+            logger.error(
+                f"dice-first sospechado: el narrador narró un resultado sin tirada previa. "
+                f"Jugador: {last_user[:80]!r}"
+            )
+
         if new_entities and _vault_writer:
             for tipo, data in new_entities:
                 try:
@@ -545,6 +556,7 @@ def send_message(user_text: str = None):
     dpg.disable_item("send_btn")
     dpg.disable_item("user_input")
 
+    state["_dice_rolled_this_turn"] = bool(state["last_dice_result"])
     if state["last_dice_result"]:
         user_text = f"{user_text}\n\n[RESULTADO DE DADOS: {state['last_dice_result']}]"
         state["last_dice_result"] = None
