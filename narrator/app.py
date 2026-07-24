@@ -124,6 +124,7 @@ state = {
     "declared_game": "",      # juego declarado por el jugador en el inicio guiado
     "phase": "idle",
     "pending_roll": None,
+    "tirada_sugerida": None,  # (cantidad, caras) extraído de la última respuesta del narrador
     "session_log": [],
     "last_dice_result": None,
     "session_number": 1,
@@ -382,6 +383,8 @@ def finish_streaming(full_text: str):
             with state_lock:
                 state["character"].update(char_data)
             needs_char_refresh = True
+        with state_lock:
+            state["tirada_sugerida"] = _narrator_agent.extract_dice_suggestion(full_text)
     else:
         is_important = any(
             w in full_text.lower()
@@ -433,6 +436,7 @@ def finish_streaming(full_text: str):
             refresh_character_panel()
         if _refresh_log:
             refresh_log()
+        refresh_dice_suggestion()
         dpg.enable_item("send_btn")
         dpg.enable_item("user_input")
 
@@ -620,9 +624,41 @@ def do_roll(sides: int):
     if _vault_writer:
         _vault_writer.log_dice_roll(f"{n}D{sides} → {result_str}")
 
+def _use_suggested_roll():
+    """Precarga cantidad/tipo de dado desde la sugerencia del narrador (Fase 2)."""
+    sugerida = state.get("tirada_sugerida")
+    if not sugerida:
+        return
+    n, sides = sugerida
+    try:
+        dpg.set_value(f"dice_count_{sides}", n)
+    except Exception as e:
+        logger.error(f"Error precargando tirada sugerida: {e}", exc_info=True)
+        return
+    state["tirada_sugerida"] = None
+    refresh_dice_suggestion()
+
+def refresh_dice_suggestion():
+    """Muestra/oculta la sugerencia de tirada del narrador en el panel de dados."""
+    sugerida = state.get("tirada_sugerida")
+    try:
+        if sugerida:
+            n, sides = sugerida
+            dpg.set_value("dice_suggestion_text", f"El narrador sugiere: {n}D{sides}")
+            dpg.configure_item("dice_suggestion_row", show=True)
+        else:
+            dpg.configure_item("dice_suggestion_row", show=False)
+    except Exception as e:
+        logger.error(f"Error refrescando sugerencia de tirada: {e}", exc_info=True)
+
 def build_dice_panel(parent):
     section_label("DADOS", parent=parent)
     dpg.add_spacer(height=6, parent=parent)
+
+    with dpg.group(tag="dice_suggestion_row", show=False, parent=parent):
+        dpg.add_text("", tag="dice_suggestion_text", color=list(C_GOLD), wrap=160)
+        dpg.add_button(label="Usar sugerida", width=170, callback=_use_suggested_roll)
+        dpg.add_spacer(height=8)
 
     for sides in DICE_TYPES:
         with dpg.group(horizontal=True, parent=parent):
@@ -1005,6 +1041,7 @@ def new_session_callback():
     state.update({"messages": [], "character": {},
                   "session_log": [], "phase": "idle",
                   "last_dice_result": None,
+                  "tirada_sugerida": None,
                   "session_number": state.get("session_number", 1) + 1})
     _memory.reset()
     if _AGENT_MODE and _orchestrator:
@@ -1016,6 +1053,7 @@ def new_session_callback():
     refresh_character_panel()
     refresh_log()
     refresh_estado_panel()
+    refresh_dice_suggestion()
     _save_session_with_memory()
     append_to_chat("system", f"Nueva sesión iniciada: #{state['session_number']}")
 
