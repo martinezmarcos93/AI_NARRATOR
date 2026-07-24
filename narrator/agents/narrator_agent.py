@@ -54,6 +54,91 @@ class NarratorAgent:
         data = json_repair.try_parse(match.group(1))
         return data if isinstance(data, dict) else None
 
+    # ── Auto-guardado de entidades + mutación de estado (Fase 11) ────
+    # Convención de etiquetas técnicas emitidas por el narrador (ver
+    # PromptBuilder.ENTITY_AUTO_SAVE_RULES) — nunca deben llegar al jugador,
+    # se limpian con strip_system_tags() antes de mostrar/guardar el mensaje.
+    _RE_ENTITY_BLOCK = re.compile(
+        r"\[\[(NUEVO_NPC|NUEVA_LOCACION)\]\](.*?)\[\[/\1\]\]", re.DOTALL | re.IGNORECASE
+    )
+    _RE_STATE_TAG = re.compile(r"\[state:\s*([^\]]+)\]", re.IGNORECASE)
+    # Pares clave=valor separados por espacios (no coma): el valor puede
+    # contener espacios (ej. "reason=herida de espada") — cada match se
+    # extiende hasta justo antes de la siguiente "palabra=" o el final.
+    _RE_STATE_KV = re.compile(r"(\w+)=([^=]*?)(?=\s+\w+=|$)")
+
+    def extract_new_entities(self, text: str) -> "list[tuple[str, dict]]":
+        """Bloques [[NUEVO_NPC]]/[[NUEVA_LOCACION]] con líneas CLAVE: valor.
+        Devuelve [(tipo, datos), ...] — tipo es 'npc' o 'locacion'; se
+        descartan los bloques sin 'nombre'."""
+        results = []
+        for m in self._RE_ENTITY_BLOCK.finditer(text):
+            tipo = "npc" if m.group(1).upper() == "NUEVO_NPC" else "locacion"
+            data = {}
+            for line in m.group(2).strip().splitlines():
+                line = line.strip()
+                if not line or ":" not in line:
+                    continue
+                key, _, value = line.partition(":")
+                data[key.strip().lower()] = value.strip()
+            if data.get("nombre"):
+                results.append((tipo, data))
+        return results
+
+    def extract_state_mutations(self, text: str) -> "list[dict]":
+        """Tags [state: field=hp delta=-3 reason=herida de espada] embebidos
+        en la narración. Devuelve una lista de dicts {field, delta|value,
+        reason}; descarta los tags sin 'field'."""
+        mutations = []
+        for m in self._RE_STATE_TAG.finditer(text):
+            inner: dict = {}
+            for key, value in self._RE_STATE_KV.findall(m.group(1).strip()):
+                inner[key.strip().lower()] = value.strip()
+            if inner.get("field"):
+                mutations.append(inner)
+        return mutations
+
+    def apply_state_mutations(self, character: dict, mutations: "list[dict]") -> "list[str]":
+        """Aplica mutaciones a `character` IN-PLACE. Devuelve una entrada de
+        log legible por cada cambio aplicado — salvaguarda de trazabilidad:
+        nunca se pisa un campo sin dejar constancia del antes/después."""
+        changelog = []
+        for mut in mutations:
+            field = mut.get("field")
+            if not field:
+                continue
+            before = character.get(field)
+            if "delta" in mut:
+                try:
+                    delta = int(mut["delta"])
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    current = int(before) if before is not None else 0
+                except (TypeError, ValueError):
+                    current = 0
+                after = current + delta
+            elif "value" in mut:
+                after = mut["value"]
+            else:
+                continue
+            character[field] = after
+            reason = mut.get("reason", "")
+            reason_str = f" ({reason})" if reason else ""
+            changelog.append(f"{field}: {before} → {after}{reason_str}")
+        return changelog
+
+    def strip_system_tags(self, text: str) -> str:
+        """Quita las etiquetas técnicas del texto — son instrucciones para
+        el sistema, el jugador nunca debe verlas en el chat. Normaliza el
+        espacio en blanco que dejan al sacarlas (doble espacio inline,
+        líneas en blanco de más donde iba un bloque de entidad)."""
+        text = self._RE_ENTITY_BLOCK.sub("", text)
+        text = self._RE_STATE_TAG.sub("", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
     def is_important_event(self, text: str) -> bool:
         text_lower = text.lower()
         return any(kw in text_lower for kw in self._EVENT_KEYWORDS)

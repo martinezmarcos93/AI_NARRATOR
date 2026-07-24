@@ -24,6 +24,19 @@ DICE_RESOLUTION_RULES = """RESOLUCIÓN DE TIRADAS:
 - Éxito parcial (PbtA 7-9): ofrecé una elección difícil.
 - Fallo: complicación interesante, la historia avanza igual."""
 
+ENTITY_AUTO_SAVE_RULES = """AUTO-GUARDADO DE ENTIDADES Y ESTADO (instrucciones técnicas, NUNCA visibles para el jugador):
+- Si en la narración aparece un NPC o Locación NUEVO que no está en el contexto, declaralo al final de tu respuesta:
+  [[NUEVO_NPC]]
+  NOMBRE: <nombre>
+  ROL: <una línea>
+  AMENAZA: <alta/media/baja>
+  [[/NUEVO_NPC]]
+  (para locaciones nuevas: [[NUEVA_LOCACION]] ... NOMBRE: <nombre> ... [[/NUEVA_LOCACION]])
+- Si el personaje jugador sufre un cambio de estado mecánico (HP, condiciones, recursos), indicalo en el punto exacto de la narración con:
+  [state: field=<campo> delta=<±número> reason=<motivo breve>]
+  (usá "value=<nuevo valor>" en vez de "delta" si no es un cambio numérico incremental)
+- Estas etiquetas son para el sistema, no literatura: el jugador NUNCA debe verlas ni se las debés mencionar. Se eliminan automáticamente antes de mostrarse."""
+
 
 class PromptBuilder:
     def __init__(self, systems_path: str = "data/systems"):
@@ -93,7 +106,7 @@ class PromptBuilder:
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
         voc = sys.get("vocabulario", {})
 
-        sections = [base_prompt, NARRATIVE_PRINCIPLES, DICE_RESOLUTION_RULES]
+        sections = [base_prompt, NARRATIVE_PRINCIPLES, DICE_RESOLUTION_RULES, ENTITY_AUTO_SAVE_RULES]
 
         if mechanical_resolution:
             # Veredicto del Rule Arbiter: la matemática ya está resuelta en

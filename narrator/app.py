@@ -371,6 +371,15 @@ def finish_streaming(full_text: str):
         _ui(_ui_error)
         return
 
+    # Fase 11: extraer entidades/mutaciones del texto CRUDO (con etiquetas
+    # técnicas) antes de limpiarlo — el jugador nunca debe ver las etiquetas.
+    new_entities: list = []
+    mutations: list = []
+    if _narrator_agent:
+        new_entities = _narrator_agent.extract_new_entities(full_text)
+        mutations = _narrator_agent.extract_state_mutations(full_text)
+        full_text = _narrator_agent.strip_system_tags(full_text)
+
     # Procesamiento sin DPG — hilo worker
     with state_lock:
         state["messages"].append({"role": "assistant", "content": full_text})
@@ -386,6 +395,28 @@ def finish_streaming(full_text: str):
             needs_char_refresh = True
         with state_lock:
             state["tirada_sugerida"] = _narrator_agent.extract_dice_suggestion(full_text)
+
+        if mutations:
+            with state_lock:
+                changelog = _narrator_agent.apply_state_mutations(state["character"], mutations)
+            if changelog:
+                needs_char_refresh = True
+                is_important = True
+                ts = datetime.now().strftime("%H:%M")
+                with state_lock:
+                    state["session_log"].extend(f"[{ts}] Estado: {c}" for c in changelog)
+
+        if new_entities and _vault_writer:
+            for tipo, data in new_entities:
+                try:
+                    if tipo == "npc":
+                        _vault_writer.create_npc(data)
+                    else:
+                        _vault_writer.create_locacion(data)
+                except Exception as e:
+                    logger.error(
+                        f"Error auto-guardando entidad '{data.get('nombre')}': {e}", exc_info=True
+                    )
     else:
         is_important = any(
             w in full_text.lower()
