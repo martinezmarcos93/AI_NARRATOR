@@ -16,20 +16,14 @@ class NPCRoutinesAgent:
         self.state = state
 
     def _build_world_state_summary(self, system_slug: str) -> str:
+        """Resumen MÍNIMO y público para decisiones de NPC (Fase 12: contexto
+        aislado). Antes incluía relojes de Frentes y el resumen de la última
+        sesión — contexto del Máster, no de un NPC individual; filtrarlo
+        habilitaba metagaming y fugas de Misterios/Frentes vía la "acción"
+        que el NPC termina narrando. Solo lo públicamente observable."""
         location = self.state.get_location() or "locación desconocida"
         session = self.state.get_session_number()
-        clocks = self.state.get_clocks_summary()
-        last = self.state.get_last_session_summary()
-
-        parts = [
-            f"Sesión: {session}",
-            f"Locación actual de los PJs: {location}",
-        ]
-        if last:
-            parts.append(f"Última sesión: {last}")
-        if clocks:
-            parts.append(f"Relojes activos:\n{clocks}")
-        return "\n".join(parts)
+        return f"Sesión: {session}\nLocación actual de los PJs: {location}"
 
     def get_npc_action(
         self,
