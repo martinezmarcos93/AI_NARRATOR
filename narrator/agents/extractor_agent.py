@@ -23,6 +23,12 @@ from narrator.core import json_repair
 
 # ── Plantillas de frontmatter por tipo ────────────────────────────────────────
 
+# Metadata de presentación (Fase 8) derivada de la amenaza — sin pedirle
+# más campos al LLM extractor, que ya devuelve bastante por NPC.
+_AMENAZA_COLOR = {"alta": "rojo", "media": "amarillo", "baja": "verde"}
+_AMENAZA_ICONO = {"alta": "🔴", "media": "🟡", "baja": "🟢"}
+
+
 def _npc_frontmatter(data: dict, system_slug: str) -> str:
     slug_tags = {
         "vtm_v20": ["npc", "vampiro"],
@@ -52,6 +58,14 @@ def _npc_frontmatter(data: dict, system_slug: str) -> str:
         lines.append(f'rol: "{data["rol"]}"')
     if data.get("amenaza"):
         lines.append(f'amenaza: {data["amenaza"]}')
+    # Metadata de token (Fase 8): color/icono por nivel de amenaza, estado
+    # narrativo inicial y condiciones apilables — editables en juego, útiles
+    # tanto en el resumen de NPCs activos como en un futuro modo visual.
+    amenaza_val = str(data.get("amenaza", "")).lower()
+    lines.append(f'color: "{_AMENAZA_COLOR.get(amenaza_val, "gris")}"')
+    lines.append(f'icono: "{_AMENAZA_ICONO.get(amenaza_val, "⚪")}"')
+    lines.append('estado: "vivo"')
+    lines.append("condiciones: []")
     # Psicología (C1): arquetipo dominante + rasgos dimensionales validados
     arquetipo, rasgos = validate_psyche(data.get("arquetipo"), data.get("rasgos"))
     if arquetipo:

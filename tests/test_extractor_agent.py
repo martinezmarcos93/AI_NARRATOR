@@ -2,6 +2,7 @@
 
 from narrator.agents.extractor_agent import (
     ExtractorAgent,
+    _npc_frontmatter,
     _parse_json_object_response,
     _parse_json_response,
 )
@@ -60,3 +61,25 @@ def test_regenerate_npc_respuesta_no_parseable_devuelve_none():
     llm = _FakeLLM("no puedo generar eso")
     agent = ExtractorAgent(llm=llm, builder=None)
     assert agent.regenerate_npc({"nombre": "Kael"}) is None
+
+
+# ── _npc_frontmatter: metadata de token (Fase 8) ─────────────────
+def test_npc_frontmatter_amenaza_alta_color_rojo():
+    fm = _npc_frontmatter({"nombre": "Kael", "amenaza": "alta"}, "generic")
+    assert 'color: "rojo"' in fm
+    assert 'icono: "🔴"' in fm
+    assert 'estado: "vivo"' in fm
+    assert "condiciones: []" in fm
+
+
+def test_npc_frontmatter_sin_amenaza_usa_defaults():
+    fm = _npc_frontmatter({"nombre": "Kael"}, "generic")
+    assert 'color: "gris"' in fm
+    assert 'icono: "⚪"' in fm
+
+
+def test_npc_frontmatter_amenaza_media_y_baja():
+    fm_media = _npc_frontmatter({"nombre": "Kael", "amenaza": "media"}, "generic")
+    fm_baja = _npc_frontmatter({"nombre": "Kael", "amenaza": "baja"}, "generic")
+    assert 'color: "amarillo"' in fm_media
+    assert 'color: "verde"' in fm_baja

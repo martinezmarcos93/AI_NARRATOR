@@ -205,7 +205,17 @@ class VaultRetriever:
             # Psicología (C1): línea conductual para diálogos consistentes
             psyche = format_psyche_line(m)
             psyche_str = f" | {psyche}" if psyche else ""
-            lines.append(f"- {name} ({grupo}){amenaza_str}: {rol}{psyche_str}")
+            # Metadata de token (Fase 8): icono por amenaza + estado/condiciones
+            # narrativas si cambiaron durante la partida (default: vivo, sin cond.)
+            icono = m.get("icono", "")
+            icono_str = f"{icono} " if icono else ""
+            estado = m.get("estado", "vivo")
+            estado_str = f" [{estado.upper()}]" if estado and estado != "vivo" else ""
+            condiciones = m.get("condiciones") or []
+            cond_str = f" (condiciones: {', '.join(condiciones)})" if condiciones else ""
+            lines.append(
+                f"- {icono_str}{name} ({grupo}){amenaza_str}{estado_str}{cond_str}: {rol}{psyche_str}"
+            )
         return "\n".join(lines)
 
     def get_active_fronts_summary(self) -> str:
