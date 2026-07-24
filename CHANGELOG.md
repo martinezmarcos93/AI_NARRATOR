@@ -4,6 +4,66 @@ Todas las modificaciones relevantes de este proyecto se documentan acá.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-AR/1.1.0/);
 versionado [semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+> 21 implementaciones tomadas de un análisis de 7 repos externos afines
+> (ver `docs/INFORME_ANALISIS_REPOS_EXTERNOS_2026-07-24.md` y
+> `docs/ROADMAP_IMPLEMENTACIONES_2026-07-24.md`). Pendiente: decidir
+> versión semántica (0.6.0 → 0.7.0 sugerido, a confirmar).
+
+### Añadido
+- **DSL de estadísticas derivadas** (`narrator/core/derived_stats.py`):
+  vocabulario fijo sin eval/exec; corrige un modificador espurio que se
+  aplicaba a las características 1-99 de CoC 7e.
+- **Tirada sugerida pendiente**: el narrador puede sugerir "5d10"/"1D20"
+  y el panel de dados la precarga con un click.
+- **Reparación de JSON malformado** (`narrator/core/json_repair.py`) +
+  **field-locking** en `ExtractorAgent.regenerate_npc()`.
+- **Factory de proveedores de LLM** (`narrator/core/providers.py`):
+  Ollama first-class, conecta claves de `config.yaml` que estaban sin usar.
+- **Lorebook por keywords** (`narrator/core/lorebook.py`): RAG liviano sin
+  embeddings; 4 entradas reales en `vtm_v20.yaml`.
+- **Ideas Inbox** (`narrator/core/ideas_inbox.py`): bandeja de borradores
+  con workflow de estados y promoción a NPC/Locación, con UI en el tab Estado.
+- **Cola de iniciativa** (`narrator/core/initiative.py`) para combate por
+  turnos explícito.
+- **Metadata de token en NPCs** (color/icono/estado/condiciones) +
+  **recall automático por mención** (`narrator/core/mention_detector.py`).
+- **Decorador `@tool`** (`narrator/core/tools.py`): schema de
+  function-calling desde type hints — infraestructura, sin conectar aún.
+- **Validación del bloque `resolution`** de los YAML de sistema
+  (`narrator/core/resolution_schema.py`).
+- **Auto-guardado de entidades + mutación de estado**: el narrador declara
+  NPCs/Locaciones nuevos y cambios de HP/condiciones con etiquetas técnicas
+  que el sistema aplica solo, sin pedírselo el jugador.
+- **Modelo de facción enriquecido**: metas/métodos/recursos/influencia/relaciones.
+- **Entidad Eventos**: timeline causa-efecto en `vault/Eventos/`.
+- **Deduplicación de memoria episódica**: descarta resúmenes parafraseados.
+- **Extracción de fichas PDF vía AcroForm** (`sheet_parser.extract_form_fields`).
+- **Búsqueda global cross-entidad** en el vault (`retriever.search_all`).
+- **Detector dice-first** (`narrator/core/dice_first_guard.py`): señala
+  (no bloquea) cuando el narrador narra un resultado sin tirada previa.
+- **Harness IA-vs-IA** (`narrator/agents/player_agent.py`,
+  `scripts/playtest.py`): jugador simulado con 5 arquetipos, métricas de
+  fuga de secretos y dice-first-miss, gate con exit code — implementa la
+  Fase 4 (IA vs IA) que el roadmap del proyecto tenía pendiente.
+- **Tarjetas SillyTavern V2** (`narrator/core/character_card.py`):
+  import/export de NPCs vía PNG + chunk `chara`.
+- **Motor de TTS local** (`narrator/core/tts_engine.py`, dependencia
+  opcional `pyttsx3`): spike + implementación, sin conectar a la GUI aún.
+
+### Arreglado
+- **NPCs con contexto aislado**: `npc_routines.py` inyectaba relojes de
+  Frentes y el resumen de última sesión (secretos del Máster) en el
+  prompt de decisión de un NPC individual — habilitaba metagaming y fugas.
+- **Logger en consola Windows (cp1252)**: un log con emoji (🔴💡⚖🎲)
+  rompía el proceso con `UnicodeEncodeError`; ahora usa `errors="replace"`.
+
+### Pendiente (fuera de esta tanda)
+- Fase 19 del roadmap (fog-of-war/mapa visual): requiere decidir si un
+  modo de mapa entra en el alcance del proyecto.
+- Wiring de UI para el motor de TTS y las tarjetas SillyTavern.
+
 ## [0.6.0] — 2026-07-10
 
 ### Añadido
