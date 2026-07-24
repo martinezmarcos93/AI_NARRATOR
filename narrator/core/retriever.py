@@ -6,6 +6,7 @@ Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible
 
 import re
 from narrator.logger import logger
+from narrator.core import lorebook
 from narrator.core.npc_psyche import format_psyche_line
 from pathlib import Path
 from typing import Optional
@@ -120,10 +121,17 @@ class VaultRetriever:
         return [item for _, item in scored[:max_results]]
 
     # ── Contexto compacto ─────────────────────────────────────
-    def get_relevant_context(self, query: str, max_words: int = 400) -> str:
+    def get_relevant_context(
+        self, query: str, max_words: int = 400, lorebook_entries: "list[dict] | None" = None
+    ) -> str:
         """
         Devuelve un bloque de texto con contenido del vault relevante para la query.
         Se mantiene dentro del budget de palabras para no inflar el contexto del LLM.
+
+        `lorebook_entries` (Fase 5): reglas del sistema activo indexadas por
+        keyword (narrator.core.lorebook). Se usan como complemento SOLO cuando
+        no hay búsqueda semántica disponible (sin nomic-embed-text) — con
+        embeddings activos, el vault ya cubre ese rol mejor.
         """
         results = self.search(query, max_results=3)
         if not results:
@@ -145,6 +153,13 @@ class VaultRetriever:
                 break
             parts.append(snippet)
             total_words += words
+
+        if lorebook_entries and not self._embedder.is_available():
+            remaining = max_words - total_words
+            if remaining > 20:
+                lore_text = lorebook.get_matching_content(lorebook_entries, query, max_words=remaining)
+                if lore_text:
+                    parts.append(lore_text)
 
         return "\n---\n".join(parts) if parts else ""
 

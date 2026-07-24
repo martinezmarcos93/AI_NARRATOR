@@ -176,13 +176,20 @@ class Orchestrator:
     def build_narrator_context(self, app_state: dict) -> str:
         system_slug = self.get_active_system(app_state)
         last_user_msg = self._get_last_user_message(app_state)
+        # Lorebook (Fase 5): reglas del sistema activo indexadas por keyword,
+        # complemento liviano cuando no hay búsqueda semántica disponible.
+        lorebook_entries = self.builder.load_system(system_slug).get("lorebook", [])
 
         vault_ctx = ""
         if not self.retriever.vault_is_empty():
             if last_user_msg:
-                vault_ctx = self.retriever.get_relevant_context(last_user_msg, max_words=300)
+                vault_ctx = self.retriever.get_relevant_context(
+                    last_user_msg, max_words=300, lorebook_entries=lorebook_entries
+                )
             if not vault_ctx:
-                vault_ctx = self.retriever.get_relevant_context("escena NPC frente", max_words=300)
+                vault_ctx = self.retriever.get_relevant_context(
+                    "escena NPC frente", max_words=300, lorebook_entries=lorebook_entries
+                )
 
         if not vault_ctx:
             manual_text = app_state.get("manual_text", "")
