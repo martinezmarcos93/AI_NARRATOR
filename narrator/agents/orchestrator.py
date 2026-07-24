@@ -7,6 +7,7 @@ import yaml
 from narrator.logger import logger
 from pathlib import Path
 from narrator import resolve_path
+from narrator.core import mention_detector
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.retriever import VaultRetriever
 from narrator.core.scene_manager import SceneManager
@@ -173,16 +174,45 @@ class Orchestrator:
                 return msg["content"]
         return ""
 
+    def _get_known_entity_names(self) -> "list[str]":
+        """Nombres de NPCs y Locaciones del vault (Fase 8: recall por mención)."""
+        names = []
+        for tipo in ("npc", "locacion"):
+            for item in self.retriever.get_by_type(tipo, max_files=50):
+                nombre = item["meta"].get("nombre")
+                if nombre:
+                    names.append(nombre)
+        return names
+
     def build_narrator_context(self, app_state: dict) -> str:
         system_slug = self.get_active_system(app_state)
         last_user_msg = self._get_last_user_message(app_state)
+        # Lorebook (Fase 5): reglas del sistema activo indexadas por keyword,
+        # complemento liviano cuando no hay búsqueda semántica disponible.
+        lorebook_entries = self.builder.load_system(system_slug).get("lorebook", [])
 
         vault_ctx = ""
         if not self.retriever.vault_is_empty():
             if last_user_msg:
-                vault_ctx = self.retriever.get_relevant_context(last_user_msg, max_words=300)
+                vault_ctx = self.retriever.get_relevant_context(
+                    last_user_msg, max_words=300, lorebook_entries=lorebook_entries
+                )
             if not vault_ctx:
-                vault_ctx = self.retriever.get_relevant_context("escena NPC frente", max_words=300)
+                vault_ctx = self.retriever.get_relevant_context(
+                    "escena NPC frente", max_words=300, lorebook_entries=lorebook_entries
+                )
+
+            # Recall por mención (Fase 8): si el jugador nombra explícitamente
+            # un NPC/Locación conocido, forzar su ficha en el contexto aunque
+            # no haya sido el top-match de la búsqueda general.
+            if last_user_msg:
+                mentioned = mention_detector.detect_mentions(
+                    last_user_msg, self._get_known_entity_names()
+                )
+                if mentioned:
+                    extra_ctx = self.retriever.get_relevant_context(mentioned[0], max_words=150)
+                    if extra_ctx and extra_ctx not in vault_ctx:
+                        vault_ctx = f"{vault_ctx}\n---\n{extra_ctx}" if vault_ctx else extra_ctx
 
         if not vault_ctx:
             manual_text = app_state.get("manual_text", "")
@@ -228,6 +258,7 @@ class Orchestrator:
             mechanical_resolution=app_state.get("resolucion_mecanica", ""),
             scenes_info=scenes_info,
             forced_event=forced_event,
+            combat_status=self.state.get_combat_status_text(),
         )
 
     def build_char_creation_context(self, app_state: dict) -> str:

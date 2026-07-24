@@ -107,6 +107,8 @@ tags_por_tipo:
 # --- Planilla de personaje (schema dinámico para GUI) ---
 character_sheet_schema:
   archetype_key: clase
+  # Modificador de atributo estándar D&D5e/PF2e: floor((score-10)/2)
+  stat_modifier_formula: {floor_div: value, divisor: 2, offset: -10}
   base_sections:
     - name: "Identidad"
       fields:

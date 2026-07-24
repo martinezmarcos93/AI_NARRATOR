@@ -5,6 +5,7 @@ Mantiene el contexto total dentro de un budget de palabras para modelos pequeño
 
 import json
 from narrator.logger import logger
+from narrator.core.resolution_schema import ResolutionSchemaError, validate_resolution
 import yaml
 from pathlib import Path
 
@@ -23,6 +24,19 @@ DICE_RESOLUTION_RULES = """RESOLUCIÓN DE TIRADAS:
 - Éxito parcial (PbtA 7-9): ofrecé una elección difícil.
 - Fallo: complicación interesante, la historia avanza igual."""
 
+ENTITY_AUTO_SAVE_RULES = """AUTO-GUARDADO DE ENTIDADES Y ESTADO (instrucciones técnicas, NUNCA visibles para el jugador):
+- Si en la narración aparece un NPC o Locación NUEVO que no está en el contexto, declaralo al final de tu respuesta:
+  [[NUEVO_NPC]]
+  NOMBRE: <nombre>
+  ROL: <una línea>
+  AMENAZA: <alta/media/baja>
+  [[/NUEVO_NPC]]
+  (para locaciones nuevas: [[NUEVA_LOCACION]] ... NOMBRE: <nombre> ... [[/NUEVA_LOCACION]])
+- Si el personaje jugador sufre un cambio de estado mecánico (HP, condiciones, recursos), indicalo en el punto exacto de la narración con:
+  [state: field=<campo> delta=<±número> reason=<motivo breve>]
+  (usá "value=<nuevo valor>" en vez de "delta" si no es un cambio numérico incremental)
+- Estas etiquetas son para el sistema, no literatura: el jugador NUNCA debe verlas ni se las debés mencionar. Se eliminan automáticamente antes de mostrarse."""
+
 
 class PromptBuilder:
     def __init__(self, systems_path: str = "data/systems"):
@@ -38,6 +52,16 @@ class PromptBuilder:
             path = self.systems_path / "generic.yaml"
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+
+        # Validación del bloque resolution (Fase 10): se registra el error
+        # apenas se carga el sistema, sin frenar el turno en curso — el
+        # RuleArbiter ya degrada con gracia si "resolution" viene vacío.
+        if "resolution" in data:
+            try:
+                validate_resolution(data["resolution"], system_slug=slug)
+            except ResolutionSchemaError as e:
+                logger.error(f"YAML de sistema '{slug}' con resolution inválida: {e}")
+
         self._cache[slug] = data
         return data
 
@@ -76,12 +100,13 @@ class PromptBuilder:
         mechanical_resolution: str = "",
         scenes_info: str = "",
         forced_event: str = "",
+        combat_status: str = "",
     ) -> str:
         sys = self.load_system(system_slug)
         base_prompt = sys.get("llm_system_prompt", "Eres un narrador de juego de rol.")
         voc = sys.get("vocabulario", {})
 
-        sections = [base_prompt, NARRATIVE_PRINCIPLES, DICE_RESOLUTION_RULES]
+        sections = [base_prompt, NARRATIVE_PRINCIPLES, DICE_RESOLUTION_RULES, ENTITY_AUTO_SAVE_RULES]
 
         if mechanical_resolution:
             # Veredicto del Rule Arbiter: la matemática ya está resuelta en
@@ -109,6 +134,12 @@ class PromptBuilder:
 
         if last_session:
             sections.append(f"ÚLTIMA SESIÓN:\n{last_session}")
+
+        if combat_status:
+            sections.append(
+                "COMBATE EN CURSO — respetá el orden de turnos, es el turno "
+                f"de quien se indica a continuación:\n{combat_status}"
+            )
 
         if clocks_summary:
             sections.append(f"RELOJES DE FRENTES:\n{clocks_summary}")

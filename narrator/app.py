@@ -17,6 +17,8 @@ from pathlib import Path
 from datetime import datetime
 
 from narrator import PROJECT_ROOT, resolve_path
+from narrator.core import derived_stats, dice_first_guard
+from narrator.core.ideas_inbox import IdeasInbox
 from narrator.core.llm_client import LLMClient
 from narrator.core.memory_manager import MemoryManager
 from narrator.core.session_manager import SessionManager
@@ -123,6 +125,8 @@ state = {
     "declared_game": "",      # juego declarado por el jugador en el inicio guiado
     "phase": "idle",
     "pending_roll": None,
+    "tirada_sugerida": None,  # (cantidad, caras) extraído de la última respuesta del narrador
+    "_dice_rolled_this_turn": False,
     "session_log": [],
     "last_dice_result": None,
     "session_number": 1,
@@ -368,6 +372,15 @@ def finish_streaming(full_text: str):
         _ui(_ui_error)
         return
 
+    # Fase 11: extraer entidades/mutaciones del texto CRUDO (con etiquetas
+    # técnicas) antes de limpiarlo — el jugador nunca debe ver las etiquetas.
+    new_entities: list = []
+    mutations: list = []
+    if _narrator_agent:
+        new_entities = _narrator_agent.extract_new_entities(full_text)
+        mutations = _narrator_agent.extract_state_mutations(full_text)
+        full_text = _narrator_agent.strip_system_tags(full_text)
+
     # Procesamiento sin DPG — hilo worker
     with state_lock:
         state["messages"].append({"role": "assistant", "content": full_text})
@@ -381,6 +394,40 @@ def finish_streaming(full_text: str):
             with state_lock:
                 state["character"].update(char_data)
             needs_char_refresh = True
+        with state_lock:
+            state["tirada_sugerida"] = _narrator_agent.extract_dice_suggestion(full_text)
+
+        if mutations:
+            with state_lock:
+                changelog = _narrator_agent.apply_state_mutations(state["character"], mutations)
+            if changelog:
+                needs_char_refresh = True
+                is_important = True
+                ts = datetime.now().strftime("%H:%M")
+                with state_lock:
+                    state["session_log"].extend(f"[{ts}] Estado: {c}" for c in changelog)
+
+        # Fase 13: solo señala (log), nunca bloquea el turno.
+        last_user = next(
+            (m["content"] for m in reversed(state["messages"]) if m.get("role") == "user"), ""
+        )
+        if dice_first_guard.check(last_user, full_text, state.get("_dice_rolled_this_turn", False)):
+            logger.error(
+                f"dice-first sospechado: el narrador narró un resultado sin tirada previa. "
+                f"Jugador: {last_user[:80]!r}"
+            )
+
+        if new_entities and _vault_writer:
+            for tipo, data in new_entities:
+                try:
+                    if tipo == "npc":
+                        _vault_writer.create_npc(data)
+                    else:
+                        _vault_writer.create_locacion(data)
+                except Exception as e:
+                    logger.error(
+                        f"Error auto-guardando entidad '{data.get('nombre')}': {e}", exc_info=True
+                    )
     else:
         is_important = any(
             w in full_text.lower()
@@ -432,6 +479,7 @@ def finish_streaming(full_text: str):
             refresh_character_panel()
         if _refresh_log:
             refresh_log()
+        refresh_dice_suggestion()
         dpg.enable_item("send_btn")
         dpg.enable_item("user_input")
 
@@ -508,6 +556,7 @@ def send_message(user_text: str = None):
     dpg.disable_item("send_btn")
     dpg.disable_item("user_input")
 
+    state["_dice_rolled_this_turn"] = bool(state["last_dice_result"])
     if state["last_dice_result"]:
         user_text = f"{user_text}\n\n[RESULTADO DE DADOS: {state['last_dice_result']}]"
         state["last_dice_result"] = None
@@ -619,9 +668,41 @@ def do_roll(sides: int):
     if _vault_writer:
         _vault_writer.log_dice_roll(f"{n}D{sides} → {result_str}")
 
+def _use_suggested_roll():
+    """Precarga cantidad/tipo de dado desde la sugerencia del narrador (Fase 2)."""
+    sugerida = state.get("tirada_sugerida")
+    if not sugerida:
+        return
+    n, sides = sugerida
+    try:
+        dpg.set_value(f"dice_count_{sides}", n)
+    except Exception as e:
+        logger.error(f"Error precargando tirada sugerida: {e}", exc_info=True)
+        return
+    state["tirada_sugerida"] = None
+    refresh_dice_suggestion()
+
+def refresh_dice_suggestion():
+    """Muestra/oculta la sugerencia de tirada del narrador en el panel de dados."""
+    sugerida = state.get("tirada_sugerida")
+    try:
+        if sugerida:
+            n, sides = sugerida
+            dpg.set_value("dice_suggestion_text", f"El narrador sugiere: {n}D{sides}")
+            dpg.configure_item("dice_suggestion_row", show=True)
+        else:
+            dpg.configure_item("dice_suggestion_row", show=False)
+    except Exception as e:
+        logger.error(f"Error refrescando sugerencia de tirada: {e}", exc_info=True)
+
 def build_dice_panel(parent):
     section_label("DADOS", parent=parent)
     dpg.add_spacer(height=6, parent=parent)
+
+    with dpg.group(tag="dice_suggestion_row", show=False, parent=parent):
+        dpg.add_text("", tag="dice_suggestion_text", color=list(C_GOLD), wrap=160)
+        dpg.add_button(label="Usar sugerida", width=170, callback=_use_suggested_roll)
+        dpg.add_spacer(height=8)
 
     for sides in DICE_TYPES:
         with dpg.group(horizontal=True, parent=parent):
@@ -671,15 +752,23 @@ def _dots(value, max_val: int = 5) -> str:
         v = 0
     return "●" * v + "○" * (max_val - v)
 
-def _stat(value) -> str:
+def _stat(value, formula: dict = None) -> str:
+    """Formatea un stat_block. Si el sistema define `stat_modifier_formula` en su
+    character_sheet_schema, calcula el modificador vía el DSL (narrator.core.derived_stats);
+    si no, muestra el valor crudo (ej. características 1-99 de CoC 7e, que no usan modificador)."""
     try:
         v = int(value)
-        mod = (v - 10) // 2
-        return f"{v} ({'+' if mod >= 0 else ''}{mod})"
     except (ValueError, TypeError):
         return str(value)
+    if not formula:
+        return str(v)
+    try:
+        mod = derived_stats.evaluate(formula, {"value": v})
+    except derived_stats.DerivedStatError:
+        return str(v)
+    return f"{v} ({'+' if mod >= 0 else ''}{mod})"
 
-def _render_field(label: str, value, display: str, ftype: str, max_val: int, parent: str):
+def _render_field(label: str, value, display: str, ftype: str, max_val: int, parent: str, stat_formula: dict = None):
     with dpg.group(horizontal=True, parent=parent):
         dpg.add_text(f"{label}:", color=list(C_TEXT_DIM), wrap=72)
         if value is None or value == "":
@@ -689,11 +778,11 @@ def _render_field(label: str, value, display: str, ftype: str, max_val: int, par
         elif display == "dots" and ftype == "int":
             dpg.add_text(_dots(value, max_val), color=list(C_GOLD))
         elif display == "stat_block" and ftype == "int":
-            dpg.add_text(_stat(value), color=list(C_TEXT))
+            dpg.add_text(_stat(value, stat_formula), color=list(C_TEXT))
         else:
             dpg.add_text(str(value), color=list(C_TEXT), wrap=88)
 
-def _render_section(section: dict, char: dict, parent: str, rendered: set):
+def _render_section(section: dict, char: dict, parent: str, rendered: set, stat_formula: dict = None):
     display = section.get("display", "default")
     dpg.add_text(section.get("name", "").upper(), color=list(C_GOLD_DIM), parent=parent)
     for field in section.get("fields", []):
@@ -709,6 +798,7 @@ def _render_section(section: dict, char: dict, parent: str, rendered: set):
             ftype=field.get("type", "string"),
             max_val=field.get("max", 5),
             parent=parent,
+            stat_formula=stat_formula,
         )
     dpg.add_spacer(height=5, parent=parent)
 
@@ -753,10 +843,11 @@ def refresh_character_panel():
     rendered: set = set()
     archetype_key = schema.get("archetype_key", "")
     archetype_val = str(char.get(archetype_key, "")).lower().strip() if archetype_key else ""
+    stat_formula = schema.get("stat_modifier_formula")
 
     # Secciones base
     for section in schema.get("base_sections", []):
-        _render_section(section, char, "char_content", rendered)
+        _render_section(section, char, "char_content", rendered, stat_formula)
 
     # Secciones condicionales según clan/clase/tipo
     if archetype_val:
@@ -764,7 +855,7 @@ def refresh_character_panel():
         for cond_key, sections in cond.items():
             if cond_key.lower() == archetype_val:
                 for section in sections:
-                    _render_section(section, char, "char_content", rendered)
+                    _render_section(section, char, "char_content", rendered, stat_formula)
                 break
 
     # Extras: campos que el LLM generó fuera del schema
@@ -802,6 +893,37 @@ def _clock_bar(tick: int, max_ticks: int) -> str:
     filled = min(tick, max_ticks)
     bar = "█" * filled + "░" * (max_ticks - filled)
     return f"[{bar}] {filled}/{max_ticks}"
+
+def _get_ideas_inbox() -> IdeasInbox:
+    vault_path = str(_orchestrator.retriever.vault_path) if (_AGENT_MODE and _orchestrator) \
+        else str(resolve_path("vault"))
+    return IdeasInbox(vault_path=vault_path)
+
+def capture_idea_callback():
+    """Anota el último mensaje del jugador como idea suelta (Fase 6)."""
+    last_user = next(
+        (m["content"] for m in reversed(state["messages"]) if m.get("role") == "user"), ""
+    )
+    if not last_user:
+        append_to_chat("system", "No hay un mensaje reciente para anotar como idea.")
+        return
+    titulo = last_user.strip()[:60]
+    try:
+        _get_ideas_inbox().create(titulo, contenido=last_user.strip())
+        append_to_chat("system", f"💡 Idea anotada: \"{titulo}\"")
+    except Exception as e:
+        logger.error(f"Error anotando idea: {e}", exc_info=True)
+        append_to_chat("system", "⚠ No se pudo anotar la idea.")
+    refresh_estado_panel()
+
+def _promote_idea_callback(idea_path, tipo: str):
+    try:
+        target = _get_ideas_inbox().promote(idea_path, tipo=tipo)
+        append_to_chat("system", f"💡 Idea promovida a {tipo}: {target.stem}")
+    except Exception as e:
+        logger.error(f"Error promoviendo idea: {e}", exc_info=True)
+        append_to_chat("system", "⚠ No se pudo promover la idea.")
+    refresh_estado_panel()
 
 def refresh_estado_panel():
     try:
@@ -862,6 +984,41 @@ def refresh_estado_panel():
             for line in escenas.splitlines():
                 color = list(C_GOLD) if line.startswith("▶") else list(C_TEXT_DIM)
                 dpg.add_text(line, parent="estado_content", color=color, wrap=155)
+
+    # Ideas pendientes (Fase 6 — Ideas Inbox)
+    try:
+        ideas = _get_ideas_inbox().list_by_state("raw_idea") + _get_ideas_inbox().list_by_state("developing")
+    except Exception as e:
+        logger.error(f"Error listando ideas: {e}", exc_info=True)
+        ideas = []
+
+    dpg.add_spacer(height=8, parent="estado_content")
+    dpg.add_separator(parent="estado_content")
+    dpg.add_spacer(height=4, parent="estado_content")
+    dpg.add_text("IDEAS PENDIENTES:", parent="estado_content", color=list(C_GOLD_DIM))
+    if ideas:
+        for idea in ideas[:5]:
+            titulo = idea["meta"].get("titulo", idea["path"].stem)
+            with dpg.group(parent="estado_content"):
+                dpg.add_text(f"- {titulo}", color=list(C_TEXT), wrap=155)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="→ NPC", width=70,
+                        callback=lambda s, a, p=idea["path"]: _promote_idea_callback(p, "npc"),
+                    )
+                    dpg.add_button(
+                        label="→ Locación", width=90,
+                        callback=lambda s, a, p=idea["path"]: _promote_idea_callback(p, "locacion"),
+                    )
+            dpg.add_spacer(height=3, parent="estado_content")
+    else:
+        dpg.add_text("Sin ideas anotadas.", parent="estado_content", color=list(C_TEXT_DIM))
+
+    dpg.add_spacer(height=4, parent="estado_content")
+    dpg.add_button(
+        label="💡 Anotar último mensaje como idea", width=-1, parent="estado_content",
+        callback=lambda: capture_idea_callback(),
+    )
 
 # ─────────────────────────────────────────────
 #  MULTI-PDF — carga suplementos adicionales
@@ -994,6 +1151,7 @@ def new_session_callback():
     state.update({"messages": [], "character": {},
                   "session_log": [], "phase": "idle",
                   "last_dice_result": None,
+                  "tirada_sugerida": None,
                   "session_number": state.get("session_number", 1) + 1})
     _memory.reset()
     if _AGENT_MODE and _orchestrator:
@@ -1005,6 +1163,7 @@ def new_session_callback():
     refresh_character_panel()
     refresh_log()
     refresh_estado_panel()
+    refresh_dice_suggestion()
     _save_session_with_memory()
     append_to_chat("system", f"Nueva sesión iniciada: #{state['session_number']}")
 

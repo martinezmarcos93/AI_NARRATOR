@@ -5,6 +5,7 @@ Relojes de frentes, flags de eventos, historial de sesiones, escena actual.
 
 import yaml
 from narrator.logger import logger
+from narrator.core.initiative import InitiativeQueue
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -89,6 +90,49 @@ class StateManager:
     def increment_turn(self):
         sc = self.data["escena_actual"]
         sc["turno_narrativo"] = sc.get("turno_narrativo", 0) + 1
+
+    # ── Combate (cola de iniciativa) ──────────────────────────
+    def start_combat(self, combatientes: "list[tuple[str, int]]") -> None:
+        """Inicia un combate. `combatientes`: [(nombre, iniciativa), ...]."""
+        q = InitiativeQueue()
+        for nombre, iniciativa in combatientes:
+            q.add(nombre, iniciativa)
+        self.data["escena_actual"]["combate"] = q.to_dict()
+        self.save()
+
+    def get_combat_queue(self) -> "InitiativeQueue | None":
+        data = self.data["escena_actual"].get("combate")
+        if not data:
+            return None
+        return InitiativeQueue.from_dict(data)
+
+    def advance_combat_turn(self) -> "str | None":
+        """Avanza al siguiente combatiente activo y persiste el nuevo estado."""
+        q = self.get_combat_queue()
+        if not q:
+            return None
+        resultado = q.next_turn()
+        self.data["escena_actual"]["combate"] = q.to_dict()
+        self.save()
+        return resultado
+
+    def end_combat(self) -> None:
+        self.data["escena_actual"]["combate"] = None
+        self.save()
+
+    def is_in_combat(self) -> bool:
+        return bool(self.data["escena_actual"].get("combate"))
+
+    def get_combat_status_text(self) -> str:
+        """Texto compacto del combate en curso para el prompt del narrador."""
+        q = self.get_combat_queue()
+        if not q or not q.is_active():
+            return ""
+        lines = [f"Ronda {q.round()}. Orden de iniciativa: {', '.join(q.order())}."]
+        actual = q.current_name()
+        if actual:
+            lines.append(f"Turno activo: {actual}.")
+        return " ".join(lines)
 
     # ── Relojes (Fronts clocks) ───────────────────────────────
     def add_clock(self, name: str, segments: int = 6, description: str = ""):

@@ -18,9 +18,16 @@ from narrator.core.llm_client import LLMClient
 from narrator.core.npc_psyche import validate_psyche
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.embedder import Embedder
+from narrator.core import json_repair
 
 
 # ── Plantillas de frontmatter por tipo ────────────────────────────────────────
+
+# Metadata de presentación (Fase 8) derivada de la amenaza — sin pedirle
+# más campos al LLM extractor, que ya devuelve bastante por NPC.
+_AMENAZA_COLOR = {"alta": "rojo", "media": "amarillo", "baja": "verde"}
+_AMENAZA_ICONO = {"alta": "🔴", "media": "🟡", "baja": "🟢"}
+
 
 def _npc_frontmatter(data: dict, system_slug: str) -> str:
     slug_tags = {
@@ -51,6 +58,14 @@ def _npc_frontmatter(data: dict, system_slug: str) -> str:
         lines.append(f'rol: "{data["rol"]}"')
     if data.get("amenaza"):
         lines.append(f'amenaza: {data["amenaza"]}')
+    # Metadata de token (Fase 8): color/icono por nivel de amenaza, estado
+    # narrativo inicial y condiciones apilables — editables en juego, útiles
+    # tanto en el resumen de NPCs activos como en un futuro modo visual.
+    amenaza_val = str(data.get("amenaza", "")).lower()
+    lines.append(f'color: "{_AMENAZA_COLOR.get(amenaza_val, "gris")}"')
+    lines.append(f'icono: "{_AMENAZA_ICONO.get(amenaza_val, "⚪")}"')
+    lines.append('estado: "vivo"')
+    lines.append("condiciones: []")
     # Psicología (C1): arquetipo dominante + rasgos dimensionales validados
     arquetipo, rasgos = validate_psyche(data.get("arquetipo"), data.get("rasgos"))
     if arquetipo:
@@ -95,6 +110,20 @@ def _faction_frontmatter(data: dict) -> str:
         lines.append(f'lider: "[[{data["lider"]}]]"')
     if data.get("territorio"):
         lines.append(f'territorio: "[[{data["territorio"]}]]"')
+    # Fase 14 — modelo de organización más rico: metas/métodos/recursos/
+    # influencia/relaciones, no solo lider+territorio.
+    if data.get("agenda"):
+        lines.append(f'metas: "{data["agenda"]}"')
+    if data.get("metodos"):
+        lines.append(f'metodos: "{data["metodos"]}"')
+    recursos = data.get("recursos") or []
+    if recursos:
+        lines.append(f"recursos: {json.dumps(recursos, ensure_ascii=False)}")
+    if data.get("influencia"):
+        lines.append(f'influencia: "{data["influencia"]}"')
+    relaciones = data.get("relaciones") or []
+    if relaciones:
+        lines.append(f"relaciones: {json.dumps(relaciones, ensure_ascii=False)}")
     lines += [
         'estado: "estable"',
         'tags: ["cofradia", "faccion"]',
@@ -152,6 +181,20 @@ TEXTO:
 
 JSON:"""
 
+_REGENERATE_NPC_PROMPT = """Sos un generador de NPCs para un juego de rol{system_hint}.
+Tenés este NPC existente:
+{npc_json}
+
+Regenerá el NPC completo, coherente y creíble, pero SIN MODIFICAR estos campos
+(mantenelos EXACTAMENTE como están en el original): {locked_keys}
+
+Devolvé el mismo formato de campos que el NPC existente (agregá los que falten:
+nombre, clan/raza/ocupacion, generacion/nivel, rol, agenda, secreto, faccion,
+amenaza, descripcion, arquetipo, rasgos).
+Devolvé SOLO un objeto JSON válido. Sin texto adicional. Sin markdown.
+
+JSON:"""
+
 _EXTRACT_LOCATIONS_PROMPT = """Analizá este texto y extraé todas las locaciones / lugares importantes.
 
 Para cada uno, devolvé un JSON con:
@@ -176,6 +219,10 @@ Para cada uno, devolvé un JSON con:
 - lider (string, nombre del líder principal)
 - territorio (string, donde operan)
 - agenda (string, qué busca la facción)
+- metodos (string, cómo persigue su agenda: diplomacia, violencia, infiltración, etc.)
+- recursos (lista de strings: dinero, contactos, armamento, información, etc.)
+- influencia (string: "alta", "media" o "baja")
+- relaciones (lista de objetos {{faccion: string, tipo: "aliada"|"enemiga"}} con otras facciones mencionadas en el texto, si las hay)
 - miembros_notables (lista de strings)
 - descripcion (string, 2-3 oraciones)
 
@@ -212,6 +259,14 @@ def _safe_filename(name: str) -> str:
     return name[:80] or "sin_nombre"
 
 
+def _strip_fence(text: str) -> str:
+    """Quita un fence ```json/``` de apertura y/o cierre, aunque uno de los
+    dos falte (respuesta cortada a mitad de generación por max_tokens)."""
+    text = re.sub(r'^```(?:json)?\s*', '', text.strip())
+    text = re.sub(r'```\s*$', '', text)
+    return text.strip()
+
+
 def _parse_json_response(text: str) -> list:
     for pattern in [
         r'```json\s*(\[.*?\])\s*```',
@@ -220,16 +275,29 @@ def _parse_json_response(text: str) -> list:
     ]:
         match = re.search(pattern, text, re.DOTALL)
         if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                continue
+            result = json_repair.try_parse(match.group(1))
+            if isinstance(result, list):
+                return result
 
-    try:
-        result = json.loads(text.strip())
-        return result if isinstance(result, list) else []
-    except Exception as e:
-        return []
+    result = json_repair.try_parse(_strip_fence(text))
+    return result if isinstance(result, list) else []
+
+
+def _parse_json_object_response(text: str) -> "dict | None":
+    """Como _parse_json_response pero para un único objeto JSON (no array)."""
+    for pattern in [
+        r'```json\s*(\{.*?\})\s*```',
+        r'```\s*(\{.*?\})\s*```',
+        r'(\{.*\})',
+    ]:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            result = json_repair.try_parse(match.group(1))
+            if isinstance(result, dict) and result:
+                return result
+
+    result = json_repair.try_parse(_strip_fence(text))
+    return result if isinstance(result, dict) and result else None
 
 
 def _build_npc_body(data: dict) -> str:
@@ -391,6 +459,25 @@ class ExtractorAgent:
                     all_npcs[nombre] = npc
 
         return list(all_npcs.values())
+
+    def regenerate_npc(self, npc: dict, locked_fields: "dict | None" = None,
+                        system_name: str = "") -> "dict | None":
+        """Regenera un NPC existente vía LLM manteniendo `locked_fields` fijos
+        (ej. {"clan": "Nosferatu"}). Los campos fijados se fuerzan al final
+        por si el LLM los ignora. Devuelve None si no se pudo parsear."""
+        locked_fields = locked_fields or {}
+        hint = f" ({system_name})" if system_name else ""
+        prompt = _REGENERATE_NPC_PROMPT.format(
+            system_hint=hint,
+            npc_json=json.dumps(npc, ensure_ascii=False, indent=2),
+            locked_keys=", ".join(locked_fields.keys()) or "(ninguno)",
+        )
+        response = self._call(prompt, max_tokens=600)
+        regenerated = _parse_json_object_response(response)
+        if not regenerated:
+            return None
+        regenerated.update(locked_fields)
+        return regenerated
 
     def extract_locations(self, text: str, on_progress: Callable[[str], None] = None) -> list[dict]:
         on_progress and on_progress("Extrayendo locaciones...")

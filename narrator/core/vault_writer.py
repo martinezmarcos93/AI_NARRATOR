@@ -4,11 +4,18 @@ Cada respuesta del narrador actualiza el log de sesión, las notas de NPCs
 y el estado de campaña. Obsidian lo ve automáticamente al refrescar.
 """
 
+import json
 import re
 from narrator.logger import logger
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+
+def _safe_filename(name: str) -> str:
+    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    name = re.sub(r"\s+", "_", name.strip())
+    return name[:80] or "sin_nombre"
 
 
 class VaultWriter:
@@ -59,6 +66,90 @@ class VaultWriter:
         for path in (self.vault / "Locaciones").glob("*.md"):
             name = path.stem.replace("_", " ").lower()
             self._loc_cache[name] = path
+
+    # ── Auto-guardado de entidades nuevas (Fase 11) ───────────
+    def create_npc(self, data: dict) -> "Path | None":
+        """Crea una nota de NPC nueva a partir de datos declarados por el
+        narrador durante la sesión. Nunca pisa un NPC existente con el
+        mismo nombre (en ese caso no hay nada que loguear: no se tocó nada).
+        Devuelve la ruta creada, o None si no se creó nada."""
+        nombre = (data.get("nombre") or "").strip()
+        if not nombre:
+            return None
+        npcs_dir = self.vault / "NPCs"
+        npcs_dir.mkdir(parents=True, exist_ok=True)
+        path = npcs_dir / f"{_safe_filename(nombre)}.md"
+        if path.exists():
+            return None
+
+        lines = ["---", "tipo: npc", f'nombre: "{nombre}"']
+        if data.get("rol"):
+            lines.append(f'rol: "{data["rol"]}"')
+        if data.get("amenaza"):
+            lines.append(f"amenaza: {data['amenaza']}")
+        if data.get("faccion"):
+            lines.append(f'faccion: "[[{data["faccion"]}]]"')
+        lines += ['estado: "vivo"', "condiciones: []", 'tags: ["npc", "auto-guardado"]', "---", ""]
+        body = f"# {nombre}\n\n*Generado automáticamente por el narrador durante la sesión.*\n"
+        path.write_text("\n".join(lines) + body, encoding="utf-8")
+
+        self._npc_cache[nombre.lower()] = path
+        return path
+
+    def create_locacion(self, data: dict) -> "Path | None":
+        """Ídem create_npc, para Locaciones."""
+        nombre = (data.get("nombre") or "").strip()
+        if not nombre:
+            return None
+        loc_dir = self.vault / "Locaciones"
+        loc_dir.mkdir(parents=True, exist_ok=True)
+        path = loc_dir / f"{_safe_filename(nombre)}.md"
+        if path.exists():
+            return None
+
+        lines = ["---", "tipo: locacion", f'nombre: "{nombre}"']
+        if data.get("distrito"):
+            lines.append(f'distrito: "[[{data["distrito"]}]]"')
+        lines += ['tags: ["locacion", "auto-guardado"]', "---", ""]
+        body = f"# {nombre}\n\n*Generado automáticamente por el narrador durante la sesión.*\n"
+        path.write_text("\n".join(lines) + body, encoding="utf-8")
+
+        self._loc_cache[nombre.lower()] = path
+        return path
+
+    # ── Eventos: timeline causa-efecto (Fase 15) ──────────────
+    def create_event(self, data: dict) -> "Path | None":
+        """Registra un evento del mundo (histórico/actual/programado) con
+        causa/efecto/participantes — historia persistente fuera de la
+        memoria episódica de sesión. Siempre crea un archivo nuevo (varios
+        eventos pueden compartir nombre/fecha, a diferencia de NPCs)."""
+        titulo = (data.get("titulo") or data.get("nombre") or "").strip()
+        if not titulo:
+            return None
+        eventos_dir = self.vault / "Eventos"
+        eventos_dir.mkdir(parents=True, exist_ok=True)
+        base = _safe_filename(titulo)
+        path = eventos_dir / f"Evento_{base}.md"
+        n = 1
+        while path.exists():
+            n += 1
+            path = eventos_dir / f"Evento_{base}_{n}.md"
+
+        tipo_evento = data.get("tipo_evento", "actual")  # historico|actual|programado
+        lines = ["---", "tipo: evento", f'titulo: "{titulo}"', f'tipo_evento: "{tipo_evento}"']
+        if data.get("fecha"):
+            lines.append(f'fecha: "{data["fecha"]}"')
+        if data.get("causa"):
+            lines.append(f'causa: "{data["causa"]}"')
+        if data.get("efecto"):
+            lines.append(f'efecto: "{data["efecto"]}"')
+        participantes = data.get("participantes") or []
+        if participantes:
+            lines.append(f"participantes: {json.dumps(participantes, ensure_ascii=False)}")
+        lines += ['tags: ["evento"]', "---", ""]
+        body = f"# {titulo}\n\n{data.get('descripcion', '')}\n"
+        path.write_text("\n".join(lines) + body, encoding="utf-8")
+        return path
 
     # ── Escritura de log de sesión ────────────────────────────
     def log_exchange(self, player_text: str, narrator_text: str):

@@ -211,3 +211,35 @@ resolution:
     - {keywords: ["percibo", "observo", "escucho", "busco", "rastreo", "auspex"], atributo: "percepcion", etiqueta: "Percepción"}
     - {keywords: ["investigo", "examino", "analizo", "recuerdo", "descifro"], atributo: "inteligencia", etiqueta: "Inteligencia"}
     - {keywords: ["reacciono", "improviso", "astucia"], atributo: "astucia", etiqueta: "Astucia"}
+
+# --- Lorebook (Fase 5): reglas puntuales indexadas por keyword ---
+# RAG liviano sin embeddings — complementa la búsqueda del vault cuando
+# nomic-embed-text no está instalado.
+lorebook:
+  - keywords: ["vaulderie", "lazo de sangre", "blood bond"]
+    priority: 5
+    content: >
+      La Vaulderie es el ritual Sabbat de compartir sangre en grupo: cada
+      participante bebe de todos los demás, creando lazos de sangre
+      recíprocos que refuerzan la lealtad de la manada por sobre la
+      individualidad.
+  - keywords: ["frenesí", "frenesi", "la bestia", "ira de caín"]
+    priority: 5
+    content: >
+      El frenesí es la pérdida de control ante ira, hambre o miedo extremos:
+      el vampiro actúa según su instinto más primario (atacar, huir o
+      alimentarse) hasta que la amenaza cesa o se agota la Fuerza de Voluntad
+      para resistir.
+  - keywords: ["mascarada", "romper la mascarada"]
+    priority: 4
+    content: >
+      La Mascarada es la ley suprema de la Camarilla: ningún mortal debe
+      sospechar la existencia de los vampiros. Romperla en público es la
+      infracción más grave y puede acarrear la Sentencia de Sangre.
+  - keywords: ["humanidad", "senda de iluminación", "degeneración"]
+    priority: 3
+    content: >
+      La Humanidad (o una Senda alternativa) mide cuánto conserva el
+      personaje de su moral mortal. Cae ante actos atroces cometidos sin
+      remordimiento; en niveles bajos, el personaje se vuelve más proclive
+      al frenesí y más distante de la empatía humana.

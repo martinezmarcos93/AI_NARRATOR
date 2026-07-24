@@ -56,11 +56,14 @@ def test_resume_al_llegar_al_umbral():
 
 
 def test_resumenes_se_acumulan():
+    # Fase 16: dos resúmenes IDÉNTICOS se deduplicarían — para probar
+    # acumulación genuina, cada lote devuelve un hecho distinto.
     mm = MemoryManager(working_window=10, batch_size=10)
-    llm = _FakeLLM("- hechos")
-    assert mm.summarize_batch(_msgs(20), llm) is True
-    assert mm.summarize_batch(_msgs(30), llm) is True
-    assert mm.get_summary_text().count("- hechos") == 2
+    assert mm.summarize_batch(_msgs(20), _FakeLLM("- los PJs llegan al pueblo")) is True
+    assert mm.summarize_batch(_msgs(30), _FakeLLM("- el tabernero les da una pista")) is True
+    text = mm.get_summary_text()
+    assert "los PJs llegan al pueblo" in text
+    assert "el tabernero les da una pista" in text
 
 
 def test_error_llm_no_avanza_puntero():

@@ -19,6 +19,9 @@ dependencies = [
 semantic = [
     "numpy>=1.26.0",   # cosine similarity
 ]
+voice = [
+    "pyttsx3>=2.99",   # narración por voz local (SAPI5 en Windows), sin descarga de modelos
+]
 dev = [
     "pytest>=8.1.0",
     "ruff>=0.4.0",

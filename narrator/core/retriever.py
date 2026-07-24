@@ -6,6 +6,7 @@ Sprint 3: búsqueda semántica via Embedder (fallback a keyword si no disponible
 
 import re
 from narrator.logger import logger
+from narrator.core import lorebook
 from narrator.core.npc_psyche import format_psyche_line
 from pathlib import Path
 from typing import Optional
@@ -46,6 +47,32 @@ class VaultRetriever:
         if self._index is None:
             self._index = self._embedder.load_index(self.vault_path)
         return self._index
+
+    # ── Búsqueda global cross-entidad (Fase 18) ───────────────
+    def search_all(self, query: str, tipo: "str | None" = None, max_results: int = 20) -> "list[dict]":
+        """Búsqueda por texto libre sobre TODO el vault (NPCs, Locaciones,
+        Frentes, Misterios, Cofradías, Eventos...), opcionalmente filtrada
+        por `tipo`. Keyword simple (conteo de ocurrencias), navegación
+        rápida durante sesión — no reemplaza get_relevant_context."""
+        query_lower = (query or "").lower().strip()
+        if not query_lower:
+            return []
+        scored = []
+        for path in self._all_md_files():
+            meta, body = _parse_file(path)
+            if tipo and meta.get("tipo") != tipo:
+                continue
+            full_text = str(meta) + " " + body
+            score = full_text.lower().count(query_lower)
+            if score > 0:
+                scored.append((score, {
+                    "tipo": meta.get("tipo", "?"),
+                    "nombre": meta.get("nombre", path.stem),
+                    "path": str(path),
+                    "score": score,
+                }))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in scored[:max_results]]
 
     def invalidate_cache(self):
         """Fuerza recarga del índice semántico y re-chequeo de Ollama.
@@ -120,10 +147,17 @@ class VaultRetriever:
         return [item for _, item in scored[:max_results]]
 
     # ── Contexto compacto ─────────────────────────────────────
-    def get_relevant_context(self, query: str, max_words: int = 400) -> str:
+    def get_relevant_context(
+        self, query: str, max_words: int = 400, lorebook_entries: "list[dict] | None" = None
+    ) -> str:
         """
         Devuelve un bloque de texto con contenido del vault relevante para la query.
         Se mantiene dentro del budget de palabras para no inflar el contexto del LLM.
+
+        `lorebook_entries` (Fase 5): reglas del sistema activo indexadas por
+        keyword (narrator.core.lorebook). Se usan como complemento SOLO cuando
+        no hay búsqueda semántica disponible (sin nomic-embed-text) — con
+        embeddings activos, el vault ya cubre ese rol mejor.
         """
         results = self.search(query, max_results=3)
         if not results:
@@ -145,6 +179,13 @@ class VaultRetriever:
                 break
             parts.append(snippet)
             total_words += words
+
+        if lorebook_entries and not self._embedder.is_available():
+            remaining = max_words - total_words
+            if remaining > 20:
+                lore_text = lorebook.get_matching_content(lorebook_entries, query, max_words=remaining)
+                if lore_text:
+                    parts.append(lore_text)
 
         return "\n---\n".join(parts) if parts else ""
 
@@ -190,7 +231,17 @@ class VaultRetriever:
             # Psicología (C1): línea conductual para diálogos consistentes
             psyche = format_psyche_line(m)
             psyche_str = f" | {psyche}" if psyche else ""
-            lines.append(f"- {name} ({grupo}){amenaza_str}: {rol}{psyche_str}")
+            # Metadata de token (Fase 8): icono por amenaza + estado/condiciones
+            # narrativas si cambiaron durante la partida (default: vivo, sin cond.)
+            icono = m.get("icono", "")
+            icono_str = f"{icono} " if icono else ""
+            estado = m.get("estado", "vivo")
+            estado_str = f" [{estado.upper()}]" if estado and estado != "vivo" else ""
+            condiciones = m.get("condiciones") or []
+            cond_str = f" (condiciones: {', '.join(condiciones)})" if condiciones else ""
+            lines.append(
+                f"- {icono_str}{name} ({grupo}){amenaza_str}{estado_str}{cond_str}: {rol}{psyche_str}"
+            )
         return "\n".join(lines)
 
     def get_active_fronts_summary(self) -> str:

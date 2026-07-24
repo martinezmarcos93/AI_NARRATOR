@@ -100,6 +100,8 @@ tags_por_tipo:
 # --- Planilla de personaje (schema dinámico para GUI) ---
 character_sheet_schema:
   archetype_key: ocupacion
+  # Sin stat_modifier_formula: las características son 1-99 (percentil),
+  # no usan modificador estilo D&D — se muestra el valor crudo.
   base_sections:
     - name: "Identidad"
       fields:
