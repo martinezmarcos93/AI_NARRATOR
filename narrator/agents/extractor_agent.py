@@ -110,6 +110,20 @@ def _faction_frontmatter(data: dict) -> str:
         lines.append(f'lider: "[[{data["lider"]}]]"')
     if data.get("territorio"):
         lines.append(f'territorio: "[[{data["territorio"]}]]"')
+    # Fase 14 — modelo de organización más rico: metas/métodos/recursos/
+    # influencia/relaciones, no solo lider+territorio.
+    if data.get("agenda"):
+        lines.append(f'metas: "{data["agenda"]}"')
+    if data.get("metodos"):
+        lines.append(f'metodos: "{data["metodos"]}"')
+    recursos = data.get("recursos") or []
+    if recursos:
+        lines.append(f"recursos: {json.dumps(recursos, ensure_ascii=False)}")
+    if data.get("influencia"):
+        lines.append(f'influencia: "{data["influencia"]}"')
+    relaciones = data.get("relaciones") or []
+    if relaciones:
+        lines.append(f"relaciones: {json.dumps(relaciones, ensure_ascii=False)}")
     lines += [
         'estado: "estable"',
         'tags: ["cofradia", "faccion"]',
@@ -205,6 +219,10 @@ Para cada uno, devolvé un JSON con:
 - lider (string, nombre del líder principal)
 - territorio (string, donde operan)
 - agenda (string, qué busca la facción)
+- metodos (string, cómo persigue su agenda: diplomacia, violencia, infiltración, etc.)
+- recursos (lista de strings: dinero, contactos, armamento, información, etc.)
+- influencia (string: "alta", "media" o "baja")
+- relaciones (lista de objetos {{faccion: string, tipo: "aliada"|"enemiga"}} con otras facciones mencionadas en el texto, si las hay)
 - miembros_notables (lista de strings)
 - descripcion (string, 2-3 oraciones)
 
