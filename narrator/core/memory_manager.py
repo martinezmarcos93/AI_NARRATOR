@@ -15,6 +15,16 @@ import threading
 
 from narrator.logger import logger
 
+
+def _word_overlap_ratio(a: str, b: str) -> float:
+    """Similitud Jaccard por palabras — dedup sin embeddings (Fase 16),
+    sirve como heurística barata cuando nomic-embed-text no está disponible."""
+    wa = set(a.lower().split())
+    wb = set(b.lower().split())
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
 _SUMMARY_PROMPT = """Resumí los siguientes turnos de una partida de rol en 5 a 8 viñetas
 concisas y factuales. Registrá SOLO hechos relevantes para la continuidad:
 decisiones del jugador, NPCs conocidos, lugares visitados, heridas, objetos
@@ -28,9 +38,17 @@ obtenidos o perdidos, promesas y amenazas. Sin florituras narrativas.
 class MemoryManager:
     """Mantiene la ventana de trabajo y los resúmenes episódicos de la sesión."""
 
-    def __init__(self, working_window: int = 10, batch_size: int = 10):
+    def __init__(self, working_window: int = 10, batch_size: int = 10,
+                 dedup_threshold: float = 0.75, dedup_window: int = 3):
         self.working_window = working_window
         self.batch_size = batch_size
+        # Fase 16: evita registrar el mismo hito narrativo dos veces con
+        # distinta redacción — compara el resumen nuevo contra los últimos
+        # `dedup_window` ya guardados; si el overlap de palabras supera
+        # `dedup_threshold`, se descarta (pero el lote igual se marca
+        # consumido, para no re-resumirlo en el próximo turno).
+        self.dedup_threshold = dedup_threshold
+        self.dedup_window = dedup_window
         self._summaries: "list[str]" = []
         self._summarized_upto = 0   # índice de messages ya resumidos
         self._lock = threading.Lock()
@@ -83,10 +101,18 @@ class MemoryManager:
             if not raw or raw.startswith("[Error"):
                 logger.error(f"MemoryManager: resumen fallido: {(raw or '')[:200]}")
                 return False
+            summary = raw.strip()
             with self._lock:
-                self._summaries.append(raw.strip())
+                recent = self._summaries[-self.dedup_window:]
+                is_dup = any(
+                    _word_overlap_ratio(summary, s) >= self.dedup_threshold for s in recent
+                )
+                if not is_dup:
+                    self._summaries.append(summary)
                 self._summarized_upto += len(batch)
-            return True
+            if is_dup:
+                logger.info("MemoryManager: resumen descartado por duplicado semántico.")
+            return not is_dup
         except Exception as e:
             logger.error(f"MemoryManager.summarize_batch: {e}", exc_info=True)
             return False
