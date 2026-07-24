@@ -48,6 +48,32 @@ class VaultRetriever:
             self._index = self._embedder.load_index(self.vault_path)
         return self._index
 
+    # ── Búsqueda global cross-entidad (Fase 18) ───────────────
+    def search_all(self, query: str, tipo: "str | None" = None, max_results: int = 20) -> "list[dict]":
+        """Búsqueda por texto libre sobre TODO el vault (NPCs, Locaciones,
+        Frentes, Misterios, Cofradías, Eventos...), opcionalmente filtrada
+        por `tipo`. Keyword simple (conteo de ocurrencias), navegación
+        rápida durante sesión — no reemplaza get_relevant_context."""
+        query_lower = (query or "").lower().strip()
+        if not query_lower:
+            return []
+        scored = []
+        for path in self._all_md_files():
+            meta, body = _parse_file(path)
+            if tipo and meta.get("tipo") != tipo:
+                continue
+            full_text = str(meta) + " " + body
+            score = full_text.lower().count(query_lower)
+            if score > 0:
+                scored.append((score, {
+                    "tipo": meta.get("tipo", "?"),
+                    "nombre": meta.get("nombre", path.stem),
+                    "path": str(path),
+                    "score": score,
+                }))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in scored[:max_results]]
+
     def invalidate_cache(self):
         """Fuerza recarga del índice semántico y re-chequeo de Ollama.
         Llamar tras construir/reconstruir el vault: el índice cacheado
