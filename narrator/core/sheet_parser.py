@@ -5,9 +5,9 @@ LLM lo estructura a un JSON plano que puebla la hoja de personaje. La
 creación de personaje in-app queda fuera de alcance (ver roadmap Fase A).
 """
 
-import json
 import re
 
+from narrator.core import json_repair
 from narrator.logger import logger
 
 _PROMPT_TEMPLATE = """Sos un extractor de datos para un juego de rol{system_hint}.
@@ -36,12 +36,9 @@ def extract_json_block(raw: str) -> "dict | None":
     if brace:
         candidates.append(brace.group(0))
     for cand in candidates:
-        try:
-            data = json.loads(cand)
-            if isinstance(data, dict) and data:
-                return data
-        except json.JSONDecodeError:
-            continue
+        data = json_repair.try_parse(cand)
+        if isinstance(data, dict) and data:
+            return data
     return None
 
 

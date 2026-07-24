@@ -18,6 +18,7 @@ from narrator.core.llm_client import LLMClient
 from narrator.core.npc_psyche import validate_psyche
 from narrator.core.prompt_builder import PromptBuilder
 from narrator.core.embedder import Embedder
+from narrator.core import json_repair
 
 
 # ── Plantillas de frontmatter por tipo ────────────────────────────────────────
@@ -152,6 +153,20 @@ TEXTO:
 
 JSON:"""
 
+_REGENERATE_NPC_PROMPT = """Sos un generador de NPCs para un juego de rol{system_hint}.
+Tenés este NPC existente:
+{npc_json}
+
+Regenerá el NPC completo, coherente y creíble, pero SIN MODIFICAR estos campos
+(mantenelos EXACTAMENTE como están en el original): {locked_keys}
+
+Devolvé el mismo formato de campos que el NPC existente (agregá los que falten:
+nombre, clan/raza/ocupacion, generacion/nivel, rol, agenda, secreto, faccion,
+amenaza, descripcion, arquetipo, rasgos).
+Devolvé SOLO un objeto JSON válido. Sin texto adicional. Sin markdown.
+
+JSON:"""
+
 _EXTRACT_LOCATIONS_PROMPT = """Analizá este texto y extraé todas las locaciones / lugares importantes.
 
 Para cada uno, devolvé un JSON con:
@@ -212,6 +227,14 @@ def _safe_filename(name: str) -> str:
     return name[:80] or "sin_nombre"
 
 
+def _strip_fence(text: str) -> str:
+    """Quita un fence ```json/``` de apertura y/o cierre, aunque uno de los
+    dos falte (respuesta cortada a mitad de generación por max_tokens)."""
+    text = re.sub(r'^```(?:json)?\s*', '', text.strip())
+    text = re.sub(r'```\s*$', '', text)
+    return text.strip()
+
+
 def _parse_json_response(text: str) -> list:
     for pattern in [
         r'```json\s*(\[.*?\])\s*```',
@@ -220,16 +243,29 @@ def _parse_json_response(text: str) -> list:
     ]:
         match = re.search(pattern, text, re.DOTALL)
         if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                continue
+            result = json_repair.try_parse(match.group(1))
+            if isinstance(result, list):
+                return result
 
-    try:
-        result = json.loads(text.strip())
-        return result if isinstance(result, list) else []
-    except Exception as e:
-        return []
+    result = json_repair.try_parse(_strip_fence(text))
+    return result if isinstance(result, list) else []
+
+
+def _parse_json_object_response(text: str) -> "dict | None":
+    """Como _parse_json_response pero para un único objeto JSON (no array)."""
+    for pattern in [
+        r'```json\s*(\{.*?\})\s*```',
+        r'```\s*(\{.*?\})\s*```',
+        r'(\{.*\})',
+    ]:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            result = json_repair.try_parse(match.group(1))
+            if isinstance(result, dict) and result:
+                return result
+
+    result = json_repair.try_parse(_strip_fence(text))
+    return result if isinstance(result, dict) and result else None
 
 
 def _build_npc_body(data: dict) -> str:
@@ -391,6 +427,25 @@ class ExtractorAgent:
                     all_npcs[nombre] = npc
 
         return list(all_npcs.values())
+
+    def regenerate_npc(self, npc: dict, locked_fields: "dict | None" = None,
+                        system_name: str = "") -> "dict | None":
+        """Regenera un NPC existente vía LLM manteniendo `locked_fields` fijos
+        (ej. {"clan": "Nosferatu"}). Los campos fijados se fuerzan al final
+        por si el LLM los ignora. Devuelve None si no se pudo parsear."""
+        locked_fields = locked_fields or {}
+        hint = f" ({system_name})" if system_name else ""
+        prompt = _REGENERATE_NPC_PROMPT.format(
+            system_hint=hint,
+            npc_json=json.dumps(npc, ensure_ascii=False, indent=2),
+            locked_keys=", ".join(locked_fields.keys()) or "(ninguno)",
+        )
+        response = self._call(prompt, max_tokens=600)
+        regenerated = _parse_json_object_response(response)
+        if not regenerated:
+            return None
+        regenerated.update(locked_fields)
+        return regenerated
 
     def extract_locations(self, text: str, on_progress: Callable[[str], None] = None) -> list[dict]:
         on_progress and on_progress("Extrayendo locaciones...")

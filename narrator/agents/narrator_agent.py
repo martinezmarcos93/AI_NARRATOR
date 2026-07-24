@@ -4,8 +4,8 @@ Detecta tiradas de dados, extracciones de JSON, eventos importantes.
 """
 
 import re
-from narrator.logger import logger
-import json
+
+from narrator.core import json_repair
 
 
 class NarratorAgent:
@@ -49,12 +49,10 @@ class NarratorAgent:
 
     def extract_character_json(self, text: str) -> dict | None:
         match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return None
+        if not match:
+            return None
+        data = json_repair.try_parse(match.group(1))
+        return data if isinstance(data, dict) else None
 
     def is_important_event(self, text: str) -> bool:
         text_lower = text.lower()
